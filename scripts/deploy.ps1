@@ -2,11 +2,20 @@
 # Ejecuta la app Next.js en modo producción
 
 param(
-    [int]$Port = 3000
+    [int]$Port = 80  # Puerto 80 = sin :puerto en la URL (requiere ejecutar como admin)
 )
 
 $AppDir = Split-Path -Parent $PSScriptRoot
 Set-Location $AppDir
+
+# Puerto 80 requiere permisos de administrador en Windows
+if ($Port -eq 80) {
+    $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    if (-not $isAdmin) {
+        Write-Error "El puerto 80 requiere ejecutar como administrador. Ejecuta deploy.bat con clic derecho -> Ejecutar como administrador."
+        exit 1
+    }
+}
 
 # Detener proceso anterior si existe (por nombre de directorio en la ruta)
 $nodeProcesses = Get-Process -Name "node" -ErrorAction SilentlyContinue
@@ -32,5 +41,5 @@ if (-not (Test-Path $nextPath)) {
 # Iniciar en background
 Start-Process -FilePath $nextPath -ArgumentList "start", "-p", $Port -WorkingDirectory $AppDir -WindowStyle Hidden
 
-Write-Host "Deploy completado. App disponible en http://localhost:$Port"
-Write-Host "URL interna: http://$(hostname):$Port o configurar hosts para URL amigable"
+Write-Host "Deploy completado. App disponible en http://localhost$(if($Port -ne 80){":$Port"} else {''})"
+Write-Host "URL amigable: http://diagnostico-dynamics.local (agregar en hosts)"

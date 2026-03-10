@@ -1,41 +1,18 @@
-import Image from "next/image";
 import DashboardContent from "./components/DashboardContent";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-zinc-100">
-      <header className="bg-black py-6 px-4 sm:px-6">
-        <div className="mx-auto max-w-3xl flex flex-col items-center gap-4">
-          <Image
-            src="/logo.png"
-            alt="TheLineGroup - living retail"
-            width={280}
-            height={80}
-            className="object-contain"
-            priority
-          />
-          <p className="text-zinc-400 text-sm tracking-wide uppercase">
-            Diagnóstico integración Dynamics
-          </p>
-        </div>
+    <div className="flex flex-col gap-6">
+      <header>
+        <h2 className="text-2xl font-bold text-zinc-900 tracking-tight">Análisis de Ventas e Integración</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Supervise el estado de boletas (BLE), facturas (FCV) y notas de crédito (NCV) enviadas al sistema Dynamics.
+        </p>
       </header>
 
-      <main className="mx-auto max-w-4xl px-4 py-10 sm:px-6">
+      <div className="bg-white ring-1 ring-zinc-200/50 rounded-2xl shadow-sm p-6 sm:p-8">
         <DashboardContent />
-      </main>
-
-      <footer className="border-t border-zinc-200 bg-white py-4 px-4 text-center text-zinc-500 text-sm flex flex-col items-center gap-2">
-        <div className="flex items-center justify-center gap-2">
-          <span className="font-semibold">TheLineGroup · Gestión</span>
-        </div>
-        <div className="text-xs text-zinc-400 flex flex-col sm:flex-row sm:gap-2 items-center">
-          <span>
-            Creado por Yohani Espinoza <span aria-label="smile" role="img">😊</span>
-          </span>
-          <span className="hidden sm:inline">&middot;</span>
-          <span>Marzo 2026</span>
-        </div>
-      </footer>
+      </div>
     </div>
   );
 }
