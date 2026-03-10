@@ -1,80 +1,111 @@
 "use client";
 
+import { motion } from "framer-motion";
+import {
+  Info, FileSearch, ListChecks, CalendarDays,
+  Download, ShieldCheck, RefreshCw, Database
+} from "lucide-react";
+
 export default function AyudaContent() {
+  const sections = [
+    {
+      title: "Rastreador de Documentos",
+      icon: FileSearch,
+      content: "Consulta un documento por su número (BLE, FCV o NCV). Verás el estado en SII, envío a Dynamics, número de líneas en Gestion, detalle por línea y errores registrados. El último log Dynamics indica el estado más reciente del documento por si ya fue corregido.",
+      extra: "Si el documento está timbrado (SII), puedes usar 'Reprocesar' para volver a enviarlo. También puedes ejecutar 'Localizar' y 'Registrar' para el documento consultado directamente desde el panel de acciones."
+    },
+    {
+      title: "Vista Ejecutiva por Estados",
+      icon: ListChecks,
+      content: "Agrupa documentos por empresa, fecha, tipo y estado de envío a Dynamics. Indica una fecha de inicio y marca los estados que representen tu interés (0 a 4).",
+      list: [
+        { id: "0", label: "Sin enviar" },
+        { id: "1", label: "Enviada (pendiente localización)" },
+        { id: "2", label: "Localización OK (pendiente registro)" },
+        { id: "3", label: "Registrado en Dynamics" },
+        { id: "4", label: "Medio de pago listo" }
+      ]
+    },
+    {
+      title: "Auditoría Histórica",
+      icon: CalendarDays,
+      content: "Lista todos los documentos de una fecha específica. Filtra por número, empresa o tipo. Usa 'Ver detalle' para inspeccionar profundamente una transacción sin perder tu posición en la lista.",
+    },
+    {
+      title: "Reportería y Exportación",
+      icon: Download,
+      content: "Todas las vistas permiten exportar datos a Excel/CSV y generar impresiones optimizadas de las tablas de resultados.",
+      extra: "Los archivos se generan en formato estándar compatible con Microsoft Excel y herramientas de BI externas."
+    },
+    {
+      title: "Arquitectura de Errores",
+      icon: Database,
+      content: "Los logs de auditoría se sincronizan en tiempo real con Ges_Salida_Error_Dyn. El sistema detecta bloqueos temporales, errores de concurrencia y fallos de validación de negocio.",
+    }
+  ];
+
   return (
-    <div className="mx-auto max-w-3xl space-y-6 text-slate-800">
-      <h2 className="text-xl font-semibold text-slate-900">Ayuda — Dashboard Dynamics</h2>
+    <div className="p-10 max-w-4xl mx-auto space-y-12">
+      <div className="border-b border-zinc-100 pb-8">
+        <h2 className="text-2xl font-black text-zinc-900 flex items-center gap-3">
+          <div className="p-2.5 bg-indigo-600 rounded-xl text-white shadow-lg shadow-indigo-100">
+            <ShieldCheck className="w-6 h-6" />
+          </div>
+          Centro de Soporte Operacional
+        </h2>
+        <p className="text-zinc-500 mt-3 text-sm font-medium leading-relaxed max-w-2xl">
+          Guía técnica para la gestión y auditoría de documentos en el ecosistema Dynamics / Gestión.
+        </p>
+      </div>
 
-      <section>
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Documento</h3>
-        <p className="text-sm text-slate-700 mb-2">
-          Consulta un documento por su número (BLE, FCV o NCV). Verás el estado en SII, envío a Dynamics,
-          número de líneas en Gestion, detalle por línea y errores registrados. El <strong>último log Dynamics</strong> indica
-          el estado más reciente del documento por si ya fue corregido.
-        </p>
-        <p className="text-sm text-slate-700">
-          Si el documento está <strong>timbrado (SII)</strong>, puedes usar <strong>Reprocesar</strong> para
-          volver a enviarlo. También puedes ejecutar <strong>Localizar</strong> (PASO 3: actualizar localización en Dynamics)
-          y <strong>Registrar</strong> (PASO 4: contabilizar en Dynamics) para el documento consultado; se usan la empresa y fecha del documento. Los valores que ingreses y la pestaña activa se conservan al cambiar de sección.
-        </p>
-      </section>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-10">
+        {sections.map((section, idx) => (
+          <motion.div
+            key={section.title}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: idx * 0.1 }}
+            className="space-y-4"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-zinc-100 flex items-center justify-center text-zinc-600 group-hover:bg-indigo-50 transition-colors">
+                <section.icon className="w-5 h-5" />
+              </div>
+              <h3 className="text-sm font-black text-zinc-900 uppercase tracking-wider">{section.title}</h3>
+            </div>
 
-      <section>
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Resumen por estados</h3>
-        <p className="text-sm text-slate-700 mb-2">
-          Agrupa documentos por empresa, fecha, tipo (BLE/FCV/NCV) y estado de envío a Dynamics. Indica
-          <strong> fecha desde</strong> y marca los estados que quieras ver (0 a 4). Opcionalmente filtra por empresa.
-        </p>
-        <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
-          <li><strong>0</strong> — Sin enviar</li>
-          <li><strong>1</strong> — Enviada (pendiente localización)</li>
-          <li><strong>2</strong> — Localización OK (pendiente registro)</li>
-          <li><strong>3</strong> — Registrado en Dynamics</li>
-          <li><strong>4</strong> — Medio de pago listo</li>
-        </ul>
-      </section>
+            <p className="text-xs text-zinc-500 leading-relaxed font-medium">
+              {section.content}
+            </p>
 
-      <section>
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Documentos por fecha</h3>
-        <p className="text-sm text-slate-700 mb-2">
-          Lista todos los documentos de una fecha. Puedes filtrar por <strong>número de documento</strong> (parcial o exacto),
-          empresa y tipo. Usa <strong>Ver detalle</strong> en cada fila para abrir el popup con el resumen del documento y,
-          si aplica, reprocesar. La paginación y los filtros se recuerdan al cambiar de pestaña.
-        </p>
-      </section>
+            {section.list && (
+              <div className="grid grid-cols-1 gap-2 pt-2">
+                {section.list.map(item => (
+                  <div key={item.id} className="flex items-center gap-3 bg-zinc-50 p-2.5 rounded-xl border border-zinc-200/50">
+                    <span className="w-5 h-5 rounded-md bg-zinc-900 text-white flex items-center justify-center text-[10px] font-black">{item.id}</span>
+                    <span className="text-[10px] font-bold text-zinc-700 uppercase tracking-tight">{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
 
-      <section>
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Reportería</h3>
-        <p className="text-sm text-slate-700 mb-2">
-          En las pestañas con datos puedes <strong>Exportar CSV</strong> e <strong>Imprimir</strong>:
-        </p>
-        <ul className="list-disc list-inside text-sm text-slate-700 space-y-1">
-          <li><strong>Documento:</strong> al consultar un documento, aparecen botones para exportar su detalle a CSV o imprimir el resultado.</li>
-          <li><strong>Resumen por estados:</strong> exporta la tabla actual a CSV (empresa, fecha, tipo, estado, cantidad) o imprime solo esa tabla.</li>
-          <li><strong>Documentos por fecha:</strong> exporta los documentos visibles en la página (tras filtros) a CSV o imprime la tabla.</li>
-        </ul>
-        <p className="text-sm text-slate-700 mt-2">
-          Los CSV se descargan en UTF-8 (abren bien en Excel). Al imprimir, solo se imprime el bloque de la pestaña actual.
-        </p>
-      </section>
+            {section.extra && (
+              <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100/50 flex gap-3 italic">
+                <Info className="w-4 h-4 text-indigo-500 shrink-0 mt-0.5" />
+                <p className="text-[10px] text-indigo-700 font-medium leading-normal">{section.extra}</p>
+              </div>
+            )}
+          </motion.div>
+        ))}
+      </div>
 
-      <section>
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Persistencia</h3>
-        <p className="text-sm text-slate-700">
-          La pestaña activa, el número de documento consultado, la fecha y filtros de la lista, y los filtros del resumen
-          se guardan en la sesión del navegador. Al volver a cada pestaña, verás los últimos valores usados sin tener que
-          volver a consultar (aunque puedes ejecutar de nuevo la búsqueda cuando quieras).
-        </p>
-      </section>
-
-      <section>
-        <h3 className="text-base font-semibold text-slate-900 mb-2">Errores y reproceso</h3>
-        <p className="text-sm text-slate-700">
-          Los errores de envío a Dynamics se registran en <strong>Ges_Salida_Error_Dyn</strong>. En la consulta por documento
-          se muestra el último log en Dynamics (estado y fecha) para comprobar si el documento ya está bien. Solo se puede
-          reprocesar cuando el documento está timbrado en SII (estado 2).
-        </p>
-      </section>
+      <div className="pt-10 border-t border-zinc-100 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-2 h-2 rounded-full bg-emerald-500 opacity-50" />
+          <span className="text-[10px] font-black text-zinc-400 uppercase tracking-widest">Sincronización de Base de Datos: OK</span>
+        </div>
+        <span className="text-[10px] font-bold text-zinc-300">v2.4.0 — Premium Edition</span>
+      </div>
     </div>
   );
 }

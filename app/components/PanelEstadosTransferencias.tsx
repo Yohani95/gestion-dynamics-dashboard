@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, RefreshCw, CheckCircle2, AlertCircle, Clock, Send, Play, Check, X, Filter, HelpCircle, AlertTriangle } from "lucide-react";
+import { formatDateLocal } from "@/lib/formatUtils";
 
 interface EstadoTraspaso {
     Id_EstadoEnvioTraspasos: string;
@@ -95,13 +96,32 @@ export default function PanelEstadosTransferencias() {
 
     return (
         <div className="flex flex-col gap-6 p-6 md:p-8">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                    <div className="bg-indigo-50 text-indigo-600 p-2.5 rounded-2xl border border-indigo-100 shadow-sm hidden sm:block">
+                        <RefreshCw className="w-6 h-6" />
+                    </div>
+                    <div>
+                        <h3 className="text-lg font-semibold text-zinc-900 flex items-center gap-2">
+                            Control de Estados de Envío
+                            {data.length > 0 && (
+                                <span className="bg-indigo-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shadow-sm ring-2 ring-white">
+                                    {data.length}
+                                </span>
+                            )}
+                        </h3>
+                        <p className="text-sm text-zinc-500 mt-1">Busque y gestione manualmente el ciclo de vida de cada traspaso.</p>
+                    </div>
+                </div>
+            </div>
+
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div className="relative flex-1 max-w-md">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
                     <input
                         type="text"
                         placeholder="Buscar por N° de Traspaso..."
-                        className="w-full pl-10 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                        className="w-full pl-10 pr-4 py-2 bg-zinc-50 border border-zinc-200 rounded-xl text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all shadow-sm"
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
@@ -162,7 +182,7 @@ export default function PanelEstadosTransferencias() {
                                             {getEstadoBadge(item.Estado)}
                                         </td>
                                         <td className="px-6 py-4 text-zinc-500 whitespace-nowrap">
-                                            {new Date(item.Fecha).toLocaleString("es-CL", { dateStyle: 'short', timeStyle: 'short' })}
+                                            {formatDateLocal(item.Fecha)}
                                         </td>
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex items-center justify-end gap-2">

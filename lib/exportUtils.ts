@@ -108,15 +108,25 @@ export function triggerPrint(selector?: string): void {
       style.id = "print-report-style";
       style.textContent = `
         @media print {
-          body * { visibility: hidden; }
-          [data-print-only="true"], [data-print-only="true"] * { visibility: visible; }
-          [data-print-only="true"] { position: absolute; left: 0; top: 0; width: 100%; }
+          body * { visibility: hidden !important; }
+          #print-report-style, script, style { display: none !important; }
+          ${selector}, ${selector} * { visibility: visible !important; }
+          ${selector} { 
+            position: absolute !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100% !important; 
+            transform: none !important; 
+            transition: none !important;
+          }
         }
       `;
       document.head.appendChild(style);
       window.print();
       (el as HTMLElement).removeAttribute("data-print-only");
-      document.getElementById("print-report-style")?.remove();
+      setTimeout(() => {
+        document.getElementById("print-report-style")?.remove();
+      }, 500);
     } else {
       window.print();
     }

@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Filter, Calendar, Download, RefreshCw, ChevronRight,
+  Building2, FileCheck2, Search, ArrowUpRight, ListChecks,
+  AlertCircle, CheckCircle2, Printer
+} from "lucide-react";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
 
 const RESUMEN_STORAGE_KEY = "gestion-dash-resumen";
@@ -34,7 +40,7 @@ function loadResumenPersisted(): ResumenPersisted | null {
 function saveResumenPersisted(p: ResumenPersisted) {
   try {
     sessionStorage.setItem(RESUMEN_STORAGE_KEY, JSON.stringify(p));
-  } catch {}
+  } catch { }
 }
 
 type ResumenItem = {
@@ -86,7 +92,7 @@ export default function ResumenEstados() {
       .then((json) => {
         if (!cancelled && json.empresas) setEmpresas(json.empresas);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => { if (!cancelled) setLoadingEmpresas(false); });
     return () => { cancelled = true; };
   }, []);
@@ -136,91 +142,161 @@ export default function ResumenEstados() {
   const totalGeneral = resumen?.reduce((s, r) => s + r.cantidad, 0) ?? 0;
 
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-4">
-      <form onSubmit={handleBuscar} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="resumen-fecha" className="block text-sm font-medium text-zinc-700 mb-1">
-                Fecha desde (documentos con fecha &gt;=)
-              </label>
-              <input
-                id="resumen-fecha"
-                type="date"
-                value={fechaDesde}
-                onChange={(e) => setFechaDesde(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                aria-label="Fecha desde"
-              />
+    <div className="w-full max-w-5xl mx-auto space-y-10">
+      {/* Control Panel (Glassmorphism) */}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="lg:col-span-3 bg-zinc-50 border border-zinc-200/60 rounded-[2.5rem] p-8 shadow-sm relative overflow-hidden group">
+          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+
+          <div className="flex items-center gap-3 mb-8 relative z-10">
+            <div className="p-2.5 bg-white rounded-xl text-indigo-600 shadow-sm border border-zinc-200/50">
+              <Filter className="w-5 h-5" />
             </div>
-            <div>
-              <label htmlFor="resumen-fecha-hasta" className="block text-sm font-medium text-zinc-700 mb-1" title="Si no se indica, se incluyen todos los días desde la fecha desde">
-                Fecha hasta (opcional)
-              </label>
-              <input
-                id="resumen-fecha-hasta"
-                type="date"
-                value={fechaHasta}
-                onChange={(e) => setFechaHasta(e.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
-                aria-label="Fecha hasta (opcional)"
-                title="Si se deja vacío, se incluyen todos los días desde la fecha desde"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-zinc-700 mb-2">
-                Estados (marca los que quieras ver)
-              </label>
-              <div className="flex flex-wrap gap-3">
-                {ESTADOS.map(({ valor, etiqueta }) => (
-                  <label key={valor} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={estados.includes(valor)}
-                      onChange={() => toggleEstado(valor)}
-                      className="rounded border-zinc-300 text-zinc-800 focus:ring-zinc-500"
-                    />
-                    <span className="text-sm text-zinc-700">
-                      {valor}: {etiqueta}
-                    </span>
-                  </label>
-                ))}
+            <h4 className="text-sm font-black text-zinc-900 uppercase tracking-[0.2em]">
+              Parámetros de Auditoría
+            </h4>
+          </div>
+
+          <form onSubmit={handleBuscar} className="space-y-8 relative z-10">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {/* Fecha Desde */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                  <Calendar className="w-3.5 h-3.5" />
+                  Rango: Desde
+                </label>
+                <input
+                  type="date"
+                  value={fechaDesde}
+                  onChange={(e) => setFechaDesde(e.target.value)}
+                  className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none shadow-sm"
+                />
+              </div>
+
+              {/* Fecha Hasta */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                  <Calendar className="w-3.5 h-3.5 opacity-50" />
+                  Rango: Hasta
+                </label>
+                <input
+                  type="date"
+                  value={fechaHasta}
+                  onChange={(e) => setFechaHasta(e.target.value)}
+                  className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none shadow-sm"
+                />
+              </div>
+
+              {/* Empresa */}
+              <div className="space-y-2">
+                <label className="text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                  <Building2 className="w-3.5 h-3.5" />
+                  Entidad de Negocio
+                </label>
+                <select
+                  value={empresa}
+                  onChange={(e) => setEmpresa(e.target.value)}
+                  disabled={loadingEmpresas}
+                  className="w-full bg-white border border-zinc-200 rounded-2xl px-4 py-3 text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none appearance-none shadow-sm disabled:opacity-50"
+                >
+                  <option value="">Consolidado Global</option>
+                  {empresas.map((e) => (
+                    <option key={e.codEmpresa} value={e.codEmpresa}>{e.descripcion}</option>
+                  ))}
+                </select>
               </div>
             </div>
-          </div>
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="resumen-empresa" className="block text-sm font-medium text-zinc-700 mb-1">
-                Empresa
+
+            {/* Estados con Checkboxes Premium */}
+            <div className="space-y-4 pt-2">
+              <label className="text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider">
+                <ListChecks className="w-3.5 h-3.5" />
+                Filtro por Estados Dinámicos
               </label>
-              <select
-                id="resumen-empresa"
-                value={empresa}
-                onChange={(e) => setEmpresa(e.target.value)}
-                disabled={loadingEmpresas}
-                className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-zinc-900 focus:border-black focus:outline-none focus:ring-1 focus:ring-black disabled:opacity-60"
-                aria-label="Filtrar por empresa"
-              >
-                <option value="">Todas</option>
-                {empresas.map((e) => (
-                  <option key={e.codEmpresa} value={e.codEmpresa}>
-                    {e.descripcion}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap gap-2.5">
+                {ESTADOS.map(({ valor, etiqueta }) => {
+                  const isChecked = estados.includes(valor);
+                  return (
+                    <button
+                      key={valor}
+                      type="button"
+                      onClick={() => toggleEstado(valor)}
+                      className={`px-4 py-2 rounded-xl text-[11px] font-bold transition-all duration-300 border flex items-center gap-2 ${isChecked
+                        ? "bg-zinc-900 border-zinc-900 text-white shadow-md shadow-zinc-200 active:scale-95"
+                        : "bg-white border-zinc-200 text-zinc-500 hover:border-zinc-300 active:scale-95"
+                        }`}
+                    >
+                      <div className={`w-1.5 h-1.5 rounded-full ${isChecked ? "bg-white animate-pulse" : "bg-zinc-300"}`} />
+                      {etiqueta}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-            <div className="pt-6">
+
+            <div className="pt-6 border-t border-zinc-100 flex items-center justify-between gap-4">
+              <div className="flex items-center gap-3">
+                <div className="h-2 w-2 rounded-full bg-indigo-50 animate-pulse" />
+                <span className="text-[11px] font-medium text-zinc-400 italic">
+                  Listo para procesar consulta masiva...
+                </span>
+              </div>
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full rounded-lg bg-zinc-800 px-4 py-2.5 font-medium text-white transition hover:bg-zinc-700 disabled:opacity-50"
+                className="px-10 h-14 bg-zinc-900 text-white text-sm font-bold rounded-[1.25rem] hover:bg-zinc-800 transition-all active:scale-95 disabled:opacity-50 flex items-center gap-3 shadow-xl shadow-zinc-200/50"
               >
-                {loading ? "Cargando…" : "Ver resumen"}
+                {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Search className="w-5 h-5" />}
+                Actualizar Vista
               </button>
             </div>
+          </form>
+        </div>
+
+        {/* Action Card Premium */}
+        <div className="bg-indigo-600 rounded-[2.5rem] p-8 text-white flex flex-col justify-between shadow-2xl shadow-indigo-200/50 border border-indigo-500 relative overflow-hidden group">
+          <div className="absolute top-0 right-0 -mr-8 -mt-8 w-32 h-32 bg-white/10 rounded-full blur-2xl group-hover:scale-150 transition-transform duration-1000" />
+
+          <div className="relative z-10">
+            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60 mb-2">
+              Exportación
+            </h4>
+            <p className="text-xl font-bold leading-tight">
+              Reporte para Toma de Decisiones
+            </p>
+          </div>
+
+          <div className="space-y-4 relative z-10">
+            <button
+              onClick={async () => {
+                const headers = ["Empresa", "Fecha", "Tipo", "Estado", "Etiqueta", "Cantidad"];
+                const rows = resumen?.map((r) => [
+                  r.descripcion,
+                  r.fecha,
+                  r.tipo,
+                  String(r.estado),
+                  ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? "",
+                  String(r.cantidad),
+                ]) ?? [];
+                await downloadXlsxTable({
+                  filename: `reporte-ventas-${new Date().toISOString().split('T')[0]}`,
+                  sheetName: "Resumen",
+                  headers,
+                  rows,
+                });
+              }}
+              disabled={!resumen || resumen.length === 0}
+              className="w-full h-14 bg-white/10 hover:bg-white/15 backdrop-blur-md rounded-2xl border border-white/10 text-xs font-bold transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
+            >
+              <Download className="w-4 h-4" />
+              Documento Excel
+            </button>
+            <p className="text-[10px] text-center opacity-40 px-2 leading-relaxed">
+              Descargue un consolidado histórico para su análisis en herramientas externas.
+            </p>
           </div>
         </div>
-      </form>
+      </div>
 
       {error && (
         <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
@@ -228,124 +304,127 @@ export default function ResumenEstados() {
         </div>
       )}
 
-      {resumen && (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="resumen-reporte">
-          <div className="p-3 border-b border-slate-200 bg-slate-900 flex flex-wrap items-center justify-between gap-2">
-            <p className="text-sm text-slate-100">
-              <strong>Total registros:</strong> {totalGeneral} (agrupado por empresa, fecha, tipo y estado).
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const headers = ["Empresa", "Fecha", "Tipo", "Estado", "Etiqueta estado", "Cantidad"];
-                  const rows = resumen.map((r) => [
-                    r.descripcion,
-                    r.fecha,
-                    r.tipo,
-                    String(r.estado),
-                    ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? "",
-                    String(r.cantidad),
-                  ]);
-                  const csv = rowsToCsv(headers, rows);
-                  const nombre = `resumen-estados-${fechaDesde}${fechaHasta ? `-hasta-${fechaHasta}` : ""}.csv`;
-                  downloadCsv(nombre, csv);
-                }}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
-              >
-                Exportar CSV
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const headers = ["Empresa", "Fecha", "Tipo", "Estado", "Etiqueta estado", "Cantidad"];
-                  const rows = resumen.map((r) => [
-                    r.descripcion,
-                    r.fecha,
-                    r.tipo,
-                    r.estado,
-                    ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? "",
-                    r.cantidad,
-                  ]);
-                  await downloadXlsxTable({
-                    filename: `resumen-estados-${fechaDesde}${fechaHasta ? `-hasta-${fechaHasta}` : ""}`,
-                    sheetName: "Resumen",
-                    headers,
-                    rows,
-                  });
-                }}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
-              >
-                Exportar Excel
-              </button>
-              <button
-                type="button"
-                onClick={() => triggerPrint("#resumen-reporte")}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
-              >
-                Imprimir
-              </button>
+      <AnimatePresence mode="wait">
+        {resumen && (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.98 }}
+            className="rounded-[2.5rem] border border-zinc-100 bg-white shadow-xl shadow-zinc-200/30 overflow-hidden"
+            id="resumen-reporte"
+          >
+            <div className="px-8 py-6 border-b border-zinc-100 bg-zinc-50/50 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600">
+                  <ArrowUpRight className="w-5 h-5" />
+                </div>
+                <div>
+                  <h5 className="text-sm font-bold text-zinc-900">Resultados de Auditoría</h5>
+                  <p className="text-[11px] text-zinc-400 font-medium">Consolidado por Empresa, Fecha y Estado</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => triggerPrint("#resumen-reporte")}
+                  className="p-2.5 text-zinc-600 hover:text-indigo-600 hover:bg-white rounded-xl transition-all border border-zinc-200 shadow-sm"
+                  title="Imprimir Vista"
+                >
+                  <Printer className="w-4.5 h-4.5" />
+                </button>
+                <div className="h-6 w-px bg-zinc-200 mx-2" />
+                <span className="text-xs font-black text-zinc-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-zinc-200">
+                  {totalGeneral} Registros
+                </span>
+              </div>
             </div>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[520px]">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-900 text-left">
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-100">
-                    Empresa
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-100">
-                    Fecha
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-100">
-                    Tipo
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-100">
-                    Estado
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-right text-slate-100">
-                    Cantidad
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {resumen.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="p-6 text-center text-slate-500">
-                      No hay datos para los filtros seleccionados.
-                    </td>
+
+            <div className="overflow-x-auto min-h-[400px]">
+              <table className="w-full text-sm border-separate border-spacing-0">
+                <thead>
+                  <tr className="text-left">
+                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Empresa / Origen</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Fecha</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Tipo</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Estado Integración</th>
+                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30 text-right">Cantidad</th>
                   </tr>
-                ) : (
-                  resumen.map((r, i) => (
-                    <tr
-                      key={`${r.codEmpresa}-${r.fecha}-${r.tipo}-${r.estado}-${i}`}
-                      className="border-b border-slate-100 even:bg-slate-50 hover:bg-slate-100/70"
-                    >
-                      <td className="p-3 text-sm font-semibold text-slate-900">
-                        {r.descripcion}
-                      </td>
-                      <td className="p-3 text-sm text-slate-700">{r.fecha}</td>
-                      <td className="p-3">
-                        <span className="inline-flex rounded-full bg-slate-900 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
-                          {r.tipo}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span className="text-sm text-slate-800">
-                          {r.estado}: {ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? r.estado}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right text-base font-bold tabular-nums text-slate-900">
-                        {r.cantidad}
+                </thead>
+                <tbody className="divide-y divide-zinc-50">
+                  {resumen.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-8 py-32 text-center">
+                        <div className="flex flex-col items-center gap-4 text-zinc-300">
+                          <Search className="w-12 h-12 opacity-20" />
+                          <p className="text-sm font-bold opacity-50">Sin coincidencias para el periodo seleccionado.</p>
+                        </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+                  ) : (
+                    resumen.map((r, i) => {
+                      const etiqueta = ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? r.estado;
+                      const isRegistrado = r.estado === 3;
+                      const isPendiente = r.estado === 0 || r.estado === 1;
+
+                      return (
+                        <tr
+                          key={`${r.codEmpresa}-${r.fecha}-${r.tipo}-${r.estado}-${i}`}
+                          className="hover:bg-zinc-50/80 transition-all duration-300 group"
+                        >
+                          <td className="px-8 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-[10px] font-black text-zinc-500 group-hover:bg-white group-hover:shadow-sm border border-transparent group-hover:border-zinc-100 transition-all">
+                                {r.descripcion.substring(0, 2).toUpperCase()}
+                              </div>
+                              <span className="text-sm font-bold text-zinc-900">{r.descripcion}</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-4">
+                            <span className="text-xs font-semibold text-zinc-500">{r.fecha}</span>
+                          </td>
+                          <td className="px-8 py-4">
+                            <span className="inline-flex px-2.5 py-1 rounded-md bg-zinc-900 text-white text-[10px] font-black uppercase tracking-tight">
+                              {r.tipo}
+                            </span>
+                          </td>
+                          <td className="px-8 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${isRegistrado
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
+                              : isPendiente
+                                ? "bg-amber-50 text-amber-700 border-amber-100/50"
+                                : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                              }`}>
+                              <div className={`w-1.5 h-1.5 rounded-full ${isRegistrado ? "bg-emerald-500" : isPendiente ? "bg-amber-500" : "bg-zinc-400"
+                                }`} />
+                              {etiqueta}
+                            </span>
+                          </td>
+                          <td className="px-8 py-4 text-right">
+                            <span className="text-lg font-mono font-black text-zinc-900 tabular-nums">
+                              {r.cantidad}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="px-8 py-5 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                Reporte Validado
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-[10px] font-bold text-zinc-500">Última actualización: {new Date().toLocaleTimeString()}</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

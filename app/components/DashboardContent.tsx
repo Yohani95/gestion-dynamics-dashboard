@@ -55,9 +55,9 @@ export default function DashboardContent() {
   ] as const;
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Tab Navigation Premium */}
-      <div className="flex bg-zinc-100/80 p-1.5 rounded-xl self-start overflow-x-auto max-w-full hide-scrollbar">
+    <div className="flex flex-col gap-8">
+      {/* Tab Navigation Premium (Glassmorphism) */}
+      <div className="flex bg-zinc-100/50 backdrop-blur-md p-1.5 rounded-2xl self-start overflow-x-auto max-w-full hide-scrollbar border border-zinc-200/50 shadow-inner">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
@@ -65,20 +65,20 @@ export default function DashboardContent() {
             <button
               key={tab.id}
               onClick={() => setTab(tab.id)}
-              className={`relative flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-lg transition-all duration-300 ${isActive
-                  ? "text-zinc-900 shadow-sm ring-1 ring-zinc-200/50"
-                  : "text-zinc-500 hover:text-zinc-700 hover:bg-zinc-200/50"
+              className={`relative flex items-center gap-2 px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-500 ${isActive
+                ? "text-zinc-900"
+                : "text-zinc-500 hover:text-zinc-800 hover:bg-white/40"
                 }`}
             >
               {isActive && (
                 <motion.div
-                  layoutId="active-tab-indicator"
-                  className="absolute inset-0 bg-white rounded-lg shadow-sm border border-zinc-200/50"
-                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  layoutId="active-tab-glow"
+                  className="absolute inset-0 bg-white rounded-xl shadow-[0_2px_10px_-3px_rgba(0,0,0,0.1)] border border-zinc-200/60"
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
                 />
               )}
-              <span className="relative z-10 flex items-center gap-2">
-                <Icon className={`w-4 h-4 ${isActive ? "text-indigo-500" : "text-zinc-400"}`} />
+              <span className="relative z-10 flex items-center gap-2.5">
+                <Icon className={`w-4.5 h-4.5 transition-colors duration-500 ${isActive ? "text-indigo-600" : "text-zinc-400"}`} />
                 {tab.label}
               </span>
             </button>
@@ -86,36 +86,42 @@ export default function DashboardContent() {
         })}
       </div>
 
-      {/* Content Area */}
-      <div className="min-h-[500px]">
+      {/* Content Area with refined transitions */}
+      <div className="min-h-[550px]">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
+            initial={{ opacity: 0, scale: 0.98, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 1.02, y: -8 }}
+            transition={{
+              type: "spring",
+              stiffness: 260,
+              damping: 25
+            }}
           >
             {activeTab === "ayuda" && (
-              <section className="bg-zinc-50/50 rounded-2xl border border-zinc-100 p-2">
+              <section className="bg-zinc-50/30 backdrop-blur-sm rounded-3xl border border-zinc-100 shadow-sm overflow-hidden">
                 <AyudaContent />
               </section>
             )}
 
             {activeTab === "documento" && (
-              <section className="bg-white rounded-2xl">
-                <div className="flex items-start justify-between mb-8">
+              <section className="bg-white">
+                <div className="flex items-start justify-between mb-10">
                   <div>
-                    <h3 className="text-xl font-semibold text-zinc-900 flex items-center gap-2">
-                      <FileSearch className="w-5 h-5 text-indigo-500" />
+                    <h3 className="text-2xl font-bold text-zinc-900 flex items-center gap-3">
+                      <div className="p-2 bg-indigo-50 rounded-xl">
+                        <FileSearch className="w-6 h-6 text-indigo-600" />
+                      </div>
                       Rastreador de Documentos
                     </h3>
-                    <p className="text-zinc-500 text-sm mt-1 max-w-2xl leading-relaxed">
-                      Herramienta principal de diagnóstico. Ingrese el número de folio (BLE, FCV o NCV) para revelar su ciclo de vida completo: estado en el SII, confirmación de envío a Dynamics y la visibilidad de líneas en Gestión. Permite el reprocesamiento seguro en caso de atascamiento.
+                    <p className="text-zinc-500 text-base mt-2 max-w-3xl leading-relaxed">
+                      Herramienta inteligente de diagnóstico. Realice un seguimiento en tiempo real del ciclo de vida de sus documentos: desde la validación del SII hasta la integración final en Dynamics.
                     </p>
                   </div>
                 </div>
-                <div className="bg-zinc-50/50 rounded-2xl p-6 border border-zinc-100">
+                <div className="bg-zinc-50/40 backdrop-blur-sm rounded-3xl p-8 border border-zinc-100/80 shadow-sm transition-all hover:shadow-md duration-500">
                   <BusquedaDocumento
                     numeroParaCargar={numeroParaCargar}
                     onNumeroCargado={onNumeroCargado}
@@ -125,34 +131,38 @@ export default function DashboardContent() {
             )}
 
             {activeTab === "resumen" && (
-              <section className="bg-white rounded-2xl">
-                <div className="mb-6">
-                  <h3 className="text-xl font-semibold text-zinc-900 flex items-center gap-2">
-                    <ListChecks className="w-5 h-5 text-indigo-500" />
+              <section className="bg-white">
+                <div className="mb-8">
+                  <h3 className="text-2xl font-bold text-zinc-900 flex items-center gap-3">
+                    <div className="p-2 bg-indigo-50 rounded-xl">
+                      <ListChecks className="w-6 h-6 text-indigo-600" />
+                    </div>
                     Vista Ejecutiva por Estados
                   </h3>
-                  <p className="text-zinc-500 text-sm mt-1 max-w-2xl leading-relaxed">
-                    Panel analítico para agrupar documentos bloqueados o procesados según su estado final en Dynamics. Permite identificar cuellos de botella por empresa, fecha y tipo de documento de forma masiva.
+                  <p className="text-zinc-500 text-base mt-2 max-w-3xl leading-relaxed">
+                    Panel analítico avanzado. Obtenga una visión panorámica de la salud operacional agrupando documentos por su estado de integración masiva.
                   </p>
                 </div>
-                <div className="bg-zinc-50/50 rounded-2xl p-6 border border-zinc-100">
+                <div className="bg-zinc-50/40 backdrop-blur-sm rounded-3xl p-8 border border-zinc-100/80 shadow-sm transition-all hover:shadow-md duration-500">
                   <ResumenEstados />
                 </div>
               </section>
             )}
 
             {activeTab === "lista" && (
-              <section className="bg-white rounded-2xl">
-                <div className="mb-6">
-                  <h3 className="text-xl font-semibold text-zinc-900 flex items-center gap-2">
-                    <CalendarDays className="w-5 h-5 text-indigo-500" />
+              <section className="bg-white">
+                <div className="mb-8">
+                  <h3 className="text-2xl font-bold text-zinc-900 flex items-center gap-3">
+                    <div className="p-2 bg-indigo-50 rounded-xl">
+                      <CalendarDays className="w-6 h-6 text-indigo-600" />
+                    </div>
                     Auditoría Histórica por Fecha
                   </h3>
-                  <p className="text-zinc-500 text-sm mt-1 max-w-2xl leading-relaxed">
-                    Explorador de línea de tiempo. Seleccione un día calendario para listar todas las transacciones generadas en esa jornada. Incluye acceso rápido al detalle individual para diagnóstico minucioso.
+                  <p className="text-zinc-500 text-base mt-2 max-w-3xl leading-relaxed">
+                    Explorador cronológico. Acceda a la línea de tiempo completa de las transacciones generadas, con filtros dinámicos por empresa y tipo de documento.
                   </p>
                 </div>
-                <div className="bg-zinc-50/50 rounded-2xl p-6 border border-zinc-100">
+                <div className="bg-zinc-50/40 backdrop-blur-sm rounded-3xl p-8 border border-zinc-100/80 shadow-sm transition-all hover:shadow-md duration-500">
                   <DocumentosPorFecha onVerDetalle={openDetalleDesdeLista} />
                 </div>
               </section>

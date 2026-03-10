@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Search, Calendar, Building2, FileText, Download,
+  ChevronLeft, ChevronRight, Filter, List, ArrowUpRight,
+  Printer, FileJson, FileSpreadsheet, AlertCircle, CheckCircle2,
+  Clock, Info, MoreHorizontal, RefreshCw
+} from "lucide-react";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
 
 type DocItem = {
@@ -20,10 +27,10 @@ type Props = {
   onVerDetalle: (numero: number) => void;
 };
 
-const estadoSii = (e: number | null) =>
+const getSiiLabel = (e: number | null) =>
   e === 2 ? "Timbrado" : e === 1 ? "Sin timbrar" : "—";
-const estadoDyn = (e: number | null) => {
-  // Tratamos null igual que 0: "Sin enviar"
+
+const getDynLabel = (e: number | null) => {
   if (e == null || e === 0) return "Sin enviar";
   const t: Record<number, string> = {
     1: "Enviada",
@@ -32,14 +39,6 @@ const estadoDyn = (e: number | null) => {
     4: "Medio pago",
   };
   return t[e] ?? e;
-};
-
-const chipEstadoClass = (e: number | null) => {
-  if (e == null || e === 0) return "bg-slate-200 text-slate-900";
-  if (e === 1) return "bg-amber-500 text-white";
-  if (e === 2 || e === 3) return "bg-emerald-600 text-white";
-  if (e === 4) return "bg-indigo-600 text-white";
-  return "bg-slate-300 text-slate-900";
 };
 
 const PAGE_SIZES = [25, 50, 100, 200];
@@ -59,7 +58,7 @@ function loadPersisted() {
 function savePersisted(p: { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number }) {
   try {
     sessionStorage.setItem(STORAGE_KEY, JSON.stringify(p));
-  } catch {}
+  } catch { }
 }
 
 export default function DocumentosPorFecha({ onVerDetalle }: Props) {
@@ -101,7 +100,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       .then((json) => {
         if (!cancelled && json.empresas) setEmpresas(json.empresas);
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => { if (!cancelled) setLoadingEmpresas(false); });
     return () => { cancelled = true; };
   }, []);
@@ -162,372 +161,458 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
   const hasta = Math.min(page * pageSize, total);
 
   const filtroTrim = filtroTabla.trim().toLowerCase();
-  const listaVisible = (list ?? []).filter((d) => {
-    if (filtroTrim && !String(d.numero).toLowerCase().includes(filtroTrim) && !d.tipo.toLowerCase().includes(filtroTrim))
-      return false;
-    if (filtroColTipo && d.tipo !== filtroColTipo) return false;
-    if (filtroColSII !== "" && (d.estadoSII ?? -1) !== Number(filtroColSII)) return false;
-    if (filtroColDynamics !== "") {
-      const target = Number(filtroColDynamics);
-      const val = d.estadoEnvio;
-      // Para "Sin enviar" (0) incluimos tanto 0 como null
-      if (target === 0) {
-        if (!(val == null || val === 0)) return false;
-      } else if (val !== target) {
+  const listaVisible = useMemo(() => {
+    return (list ?? []).filter((d) => {
+      if (filtroTrim && !String(d.numero).toLowerCase().includes(filtroTrim) && !d.tipo.toLowerCase().includes(filtroTrim))
         return false;
+      if (filtroColTipo && d.tipo !== filtroColTipo) return false;
+      if (filtroColSII !== "" && (d.estadoSII ?? -1) !== Number(filtroColSII)) return false;
+      if (filtroColDynamics !== "") {
+        const target = Number(filtroColDynamics);
+        const val = d.estadoEnvio;
+        if (target === 0) {
+          if (!(val == null || val === 0)) return false;
+        } else if (val !== target) {
+          return false;
+        }
       }
-    }
-    return true;
-  });
+      return true;
+    });
+  }, [list, filtroTrim, filtroColTipo, filtroColSII, filtroColDynamics]);
+
   const hayFiltrosColumna = filtroColTipo || filtroColSII !== "" || filtroColDynamics !== "" || filtroTrim;
 
   return (
-    <div className="w-full max-w-5xl mx-auto space-y-4">
-      <form
-        onSubmit={handleBuscar}
-        className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"
+    <div className="w-full max-w-6xl mx-auto space-y-6 md:space-y-8 pb-10 px-4 md:px-0">
+      {/* Control Panel (Glassmorphism) */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-zinc-50 border border-zinc-200/60 rounded-3xl md:rounded-[2.5rem] p-6 md:p-8 shadow-sm relative overflow-hidden group"
       >
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
-          <div>
-            <label htmlFor="fecha-docs" className="block text-sm font-medium text-slate-700 mb-1">
-              Fecha
-            </label>
-            <input
-              id="fecha-docs"
-              type="date"
-              value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
-              max={hoy}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400"
-              aria-label="Fecha"
-            />
+        <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+
+        <div className="flex items-center justify-between mb-6 md:mb-8 relative z-10">
+          <div className="flex items-center gap-3">
+            <div className="p-2 md:p-2.5 bg-white rounded-xl text-indigo-600 shadow-sm border border-zinc-200/50">
+              <Filter className="w-4 h-4 md:w-5 md:h-5" />
+            </div>
+            <div>
+              <h4 className="text-xs md:text-sm font-black text-zinc-900 uppercase tracking-[0.2em]">
+                Auditoría de Documentos
+              </h4>
+              <p className="text-[9px] md:text-[10px] text-zinc-400 font-bold uppercase tracking-widest mt-0.5">Búsqueda avanzada de transacciones</p>
+            </div>
           </div>
-          <div>
-            <label htmlFor="numero-docs" className="block text-sm font-medium text-slate-700 mb-1">
-              Número (opcional)
-            </label>
-            <input
-              id="numero-docs"
-              type="text"
-              value={numeroFilter}
-              onChange={(e) => setNumeroFilter(e.target.value)}
-              placeholder="Ej: 6512585"
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 placeholder:text-slate-500 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400"
-              aria-label="Filtrar por número de documento"
-            />
+        </div>
+
+        <form onSubmit={handleBuscar} className="space-y-5 md:space-y-6 relative z-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+            <div className="space-y-1.5 md:space-y-2">
+              <label className="text-[10px] md:text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                <Calendar className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                Fecha Emisión
+              </label>
+              <input
+                type="date"
+                value={fecha}
+                onChange={(e) => setFecha(e.target.value)}
+                max={hoy}
+                className="w-full bg-white border border-zinc-200 rounded-xl md:rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs md:text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none shadow-sm"
+              />
+            </div>
+
+            <div className="space-y-1.5 md:space-y-2">
+              <label className="text-[10px] md:text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                <FileText className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                N° Documento
+              </label>
+              <input
+                type="text"
+                value={numeroFilter}
+                onChange={(e) => setNumeroFilter(e.target.value)}
+                placeholder="Ej: 6512585"
+                className="w-full bg-white border border-zinc-200 rounded-xl md:rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs md:text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none shadow-sm placeholder:text-zinc-300 placeholder:font-normal"
+              />
+            </div>
+
+            <div className="space-y-1.5 md:space-y-2">
+              <label className="text-[10px] md:text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                <Building2 className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                Empresa Origen
+              </label>
+              <select
+                value={empresa}
+                onChange={(e) => setEmpresa(e.target.value)}
+                disabled={loadingEmpresas}
+                className="w-full bg-white border border-zinc-200 rounded-xl md:rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs md:text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none appearance-none shadow-sm disabled:opacity-50"
+              >
+                <option value="">Todas las Entidades</option>
+                {empresas.map((e) => (
+                  <option key={e.codEmpresa} value={e.codEmpresa}>{e.descripcion}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-1.5 md:space-y-2">
+              <label className="text-[10px] md:text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider ml-1">
+                <List className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                Tipo Doc.
+              </label>
+              <select
+                value={tipo}
+                onChange={(e) => setTipo(e.target.value)}
+                className="w-full bg-white border border-zinc-200 rounded-xl md:rounded-2xl px-3 py-2.5 md:px-4 md:py-3 text-xs md:text-sm font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all outline-none appearance-none shadow-sm"
+              >
+                <option value="">Todos los Tipos</option>
+                <option value="BLE">Boleta (BLE)</option>
+                <option value="FCV">Factura (FCV)</option>
+                <option value="NCV">Nota Crédito (NCV)</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label htmlFor="empresa-docs" className="block text-sm font-medium text-slate-700 mb-1">
-              Empresa
-            </label>
-            <select
-              id="empresa-docs"
-              value={empresa}
-              onChange={(e) => setEmpresa(e.target.value)}
-              disabled={loadingEmpresas}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
-              aria-label="Filtrar por empresa"
-            >
-              <option value="">Todas</option>
-              {empresas.map((e) => (
-                <option key={e.codEmpresa} value={e.codEmpresa}>
-                  {e.descripcion}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="tipo-docs" className="block text-sm font-medium text-slate-700 mb-1">
-              Tipo documento
-            </label>
-            <select
-              id="tipo-docs"
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-slate-900 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400"
-              aria-label="Filtrar por tipo"
-            >
-              <option value="">Todos</option>
-              <option value="BLE">BLE</option>
-              <option value="FCV">FCV</option>
-              <option value="NCV">NCV</option>
-            </select>
-          </div>
-          <div className="flex gap-2">
+
+          <div className="pt-4 md:pt-6 border-t border-zinc-100 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div className="hidden md:flex items-center gap-3">
+              <div className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Motor de búsqueda activo</span>
+            </div>
+
             <button
               type="submit"
-              disabled={loading}
-              className="flex-1 rounded-lg bg-slate-900 px-4 py-2 font-medium text-white transition hover:bg-slate-800 disabled:opacity-50"
+              disabled={loading || !fecha}
+              className="w-full md:w-auto px-10 h-12 md:h-14 bg-zinc-900 text-white text-xs md:text-sm font-bold rounded-xl md:rounded-[1.25rem] hover:bg-zinc-800 transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3 shadow-xl shadow-zinc-200/50"
             >
-              {loading ? "Cargando…" : "Buscar"}
+              {loading ? <RefreshCw className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <Search className="w-4 h-4 md:w-5 md:h-5" />}
+              Consultar Documentos
             </button>
           </div>
-        </div>
-      </form>
+        </form>
+      </motion.div>
 
       {error && (
-        <div className="rounded-lg border border-rose-300 bg-rose-50 p-3 text-sm text-rose-900">
-          {error}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="rounded-2xl border border-rose-100 bg-rose-50/50 p-4 flex items-center gap-3 text-rose-800"
+        >
+          <AlertCircle className="w-5 h-5 flex-shrink-0" />
+          <p className="text-xs md:text-sm font-bold">{error}</p>
+        </motion.div>
       )}
 
       {list && (
-        <div className="rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden" id="documentos-fecha-reporte">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 p-3 border-b border-slate-200 bg-slate-900">
-            <p className="text-sm text-slate-100">
-              <strong>{total}</strong> documento(s). Usa los filtros para acotar y
-              &quot;Ver detalle&quot; para revisar un documento puntual.
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  const headers = ["Tipo", "Número", "Fecha emisión", "SII", "Dynamics", "Líneas Gestion"];
-                  const rows = listaVisible.map((d) => [
-                    d.tipo,
-                    String(d.numero),
-                    d.fechaEmision?.slice(0, 16) ?? "",
-                    estadoSii(d.estadoSII),
-                    estadoDyn(d.estadoEnvio),
-                    String(d.lineasGestion ?? 0),
-                  ]);
-                  const csv = rowsToCsv(headers, rows);
-                  downloadCsv(`documentos-fecha-${fecha || "lista"}.csv`, csv);
-                }}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
-              >
-                Exportar CSV
-              </button>
-              <button
-                type="button"
-                onClick={async () => {
-                  const headers = ["Tipo", "Número", "Fecha emisión", "SII", "Dynamics", "Líneas Gestion"];
-                  const rows = listaVisible.map((d) => [
-                    d.tipo,
-                    d.numero,
-                    d.fechaEmision?.slice(0, 16) ?? "",
-                    estadoSii(d.estadoSII),
-                    estadoDyn(d.estadoEnvio),
-                    d.lineasGestion ?? 0,
-                  ]);
-                  await downloadXlsxTable({
-                    filename: `documentos-fecha-${fecha || "lista"}`,
-                    sheetName: "Documentos",
-                    headers,
-                    rows,
-                  });
-                }}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
-              >
-                Exportar Excel
-              </button>
-              <button
-                type="button"
-                onClick={() => triggerPrint("#documentos-fecha-reporte")}
-                className="rounded-lg border border-slate-400 bg-white px-3 py-1.5 text-xs font-semibold text-slate-800 shadow-sm hover:bg-slate-100"
-              >
-                Imprimir
-              </button>
-              <label className="flex items-center gap-2 text-sm text-slate-200">
-                Mostrar
-                <select
-                  value={pageSize}
-                  onChange={(e) => {
-                    const v = Number(e.target.value);
-                    setPage(1);
-                    loadDocumentos(1, v);
-                  }}
-                  className="rounded border border-slate-400 bg-white px-2 py-1 text-slate-900"
-                >
-                  {PAGE_SIZES.map((n) => (
-                    <option key={n} value={n}>{n}</option>
-                  ))}
-                </select>
-                por página
-              </label>
-            </div>
-          </div>
+        <AnimatePresence mode="wait">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="rounded-3xl md:rounded-[2.5rem] border border-zinc-100 bg-white shadow-xl shadow-zinc-200/30 overflow-hidden"
+            id="documentos-fecha-reporte"
+          >
+            {/* Table Header / Toolbar */}
+            <div className="px-5 py-5 md:px-8 md:py-6 border-b border-zinc-100 bg-zinc-50/50 flex flex-col sm:flex-row flex-wrap items-center justify-between gap-4 md:gap-6">
+              <div className="flex items-center gap-3 md:gap-4 self-start">
+                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 shadow-inner">
+                  <ArrowUpRight className="w-4 h-4 md:w-5 md:h-5" />
+                </div>
+                <div>
+                  <h5 className="text-xs md:text-sm font-bold text-zinc-900 leading-none">Resultados de Consulta</h5>
+                  <p className="text-[9px] md:text-[11px] text-zinc-400 font-medium mt-1">Consolidado: {total} documentos encontrados</p>
+                </div>
+              </div>
 
-          <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50 px-3 py-2">
-            <label className="text-sm font-medium text-slate-700">
-              Buscar en esta página:
-            </label>
-            <input
-              type="text"
-              value={filtroTabla}
-              onChange={(e) => setFiltroTabla(e.target.value)}
-              placeholder="Número o tipo (ej: 505181, BLE)"
-              className="min-w-[180px] flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-500 focus:border-slate-900 focus:outline-none focus:ring-2 focus:ring-slate-400"
-              aria-label="Filtrar tabla por número o tipo"
-            />
-            {(filtroTrim || hayFiltrosColumna) && (
-              <span className="text-sm text-slate-600">
-                Mostrando {listaVisible.length} de {list.length}
-              </span>
-            )}
-          </div>
+              <div className="flex flex-wrap items-center gap-2 md:gap-3 w-full sm:w-auto">
+                {/* Internal Search */}
+                <div className="relative group flex-1 sm:flex-initial">
+                  <Search className="absolute left-3 md:left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 md:w-4 md:h-4 text-zinc-300 group-focus-within:text-indigo-500 transition-colors" />
+                  <input
+                    type="text"
+                    value={filtroTabla}
+                    onChange={(e) => setFiltroTabla(e.target.value)}
+                    placeholder="Filtrar en vista..."
+                    className="bg-white border border-zinc-200 rounded-xl pl-9 md:pl-10 pr-4 py-2 md:py-2.5 text-[10px] md:text-xs font-bold text-zinc-800 focus:ring-4 focus:ring-indigo-500/5 focus:border-indigo-500 outline-none w-full sm:w-40 md:w-48 transition-all"
+                  />
+                </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[640px]">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-100 text-left">
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
-                    Tipo
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
-                    Número
-                  </th>
-                  <th className="hidden p-3 text-xs font-semibold uppercase tracking-wide text-slate-700 sm:table-cell">
-                    Fecha
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
-                    SII
-                  </th>
-                  <th className="p-3 text-xs font-semibold uppercase tracking-wide text-slate-700">
-                    Dynamics
-                  </th>
-                  <th className="p-3 text-right text-xs font-semibold uppercase tracking-wide text-slate-700">
-                    Líneas (Gestion)
-                  </th>
-                  <th className="w-28 p-3 text-xs font-semibold uppercase tracking-wide text-slate-700" />
-                </tr>
-                <tr className="border-b border-slate-200 bg-slate-50/80 text-left">
-                  <th className="p-2">
-                    <select
-                      value={filtroColTipo}
-                      onChange={(e) => setFiltroColTipo(e.target.value)}
-                      className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-slate-500 focus:outline-none"
-                      aria-label="Filtrar por tipo"
-                    >
-                      <option value="">Todos</option>
-                      <option value="BLE">BLE</option>
-                      <option value="FCV">FCV</option>
-                      <option value="NCV">NCV</option>
-                    </select>
-                  </th>
-                  <th className="p-2 text-xs text-slate-500">—</th>
-                  <th className="hidden p-2 sm:table-cell" />
-                  <th className="p-2">
-                    <select
-                      value={filtroColSII}
-                      onChange={(e) => setFiltroColSII(e.target.value)}
-                      className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-slate-500 focus:outline-none"
-                      aria-label="Filtrar por SII"
-                    >
-                      <option value="">Todos</option>
-                      <option value="2">Timbrado</option>
-                      <option value="1">Sin timbrar</option>
-                    </select>
-                  </th>
-                  <th className="p-2">
-                    <select
-                      value={filtroColDynamics}
-                      onChange={(e) => setFiltroColDynamics(e.target.value)}
-                      className="w-full min-w-0 rounded border border-slate-300 bg-white px-2 py-1 text-xs text-slate-800 focus:border-slate-500 focus:outline-none"
-                      aria-label="Filtrar por Dynamics"
-                    >
-                      <option value="">Todos</option>
-                      <option value="0">Sin enviar</option>
-                      <option value="1">Enviada</option>
-                      <option value="2">Loc. OK</option>
-                      <option value="3">Registrado</option>
-                      <option value="4">Medio pago</option>
-                    </select>
-                  </th>
-                  <th className="p-2 text-right text-xs text-slate-500">—</th>
-                  <th className="w-28 p-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {listaVisible.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-6 text-center text-slate-500">
-                      {list.length === 0
-                        ? "No hay documentos para los filtros seleccionados."
-                        : "Ningún documento coincide con los filtros de columna o buscador."}
-                    </td>
-                  </tr>
-                ) : (
-                  listaVisible.map((d) => (
-                    <tr
-                      key={d.idDocumento ?? `${d.tipo}-${d.numero}`}
-                      className="border-b border-slate-100 even:bg-slate-50 hover:bg-slate-100/70"
-                    >
-                      <td className="p-3">
-                        <span className="inline-flex items-center rounded-full bg-slate-900 px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide text-white">
-                          {d.tipo}
-                        </span>
-                      </td>
-                      <td className="p-3 font-mono text-sm font-semibold text-slate-900">
-                        {d.numero}
-                      </td>
-                      <td className="hidden p-3 text-sm text-slate-700 sm:table-cell">
-                        {d.fechaEmision?.slice(0, 16) ?? "—"}
-                      </td>
-                      <td className="p-3">
-                        <span className="inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-900">
-                          {estadoSii(d.estadoSII)}
-                        </span>
-                      </td>
-                      <td className="p-3">
-                        <span
-                          className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${chipEstadoClass(
-                            d.estadoEnvio,
-                          )}`}
-                        >
-                          {estadoDyn(d.estadoEnvio)}
-                        </span>
-                      </td>
-                      <td className="p-3 text-right text-base font-bold text-slate-900">
-                        {d.lineasGestion ?? 0}
-                      </td>
-                      <td className="p-3">
-                        <button
-                          type="button"
-                          onClick={() => onVerDetalle(d.numero)}
-                          className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-slate-800 shadow-sm hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400"
-                        >
-                          Ver detalle
-                        </button>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+                <div className="h-6 md:h-8 w-px bg-zinc-200 mx-1 hidden sm:block" />
 
-          {totalPaginas > 1 && (
-            <div className="flex flex-wrap items-center justify-between gap-3 p-3 border-t border-slate-100 bg-slate-50/50">
-              <p className="text-sm text-slate-600">
-                {hayFiltrosColumna
-                  ? `Página: ${desde}–${hasta} de ${total} (visibles: ${listaVisible.length})`
-                  : `Mostrando ${desde}–${hasta} de ${total}`}
-              </p>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(page - 1)}
-                  disabled={page <= 1 || loading}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  Anterior
-                </button>
-                <span className="text-sm text-slate-600 px-2">
-                  Página {page} de {totalPaginas}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => handlePageChange(page + 1)}
-                  disabled={page >= totalPaginas || loading}
-                  className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  Siguiente
-                </button>
+                <div className="flex items-center gap-1.5 md:gap-2">
+                  <button
+                    onClick={async () => {
+                      const headers = ["Tipo", "Número", "Emisión", "SII", "Dynamics", "Líneas"];
+                      const rows = listaVisible.map(d => [d.tipo, d.numero, d.fechaEmision, getSiiLabel(d.estadoSII), getDynLabel(d.estadoEnvio), d.lineasGestion]);
+                      await downloadXlsxTable({ filename: `reporte-docs-${fecha}`, sheetName: "Docs", headers, rows });
+                    }}
+                    className="p-2 md:p-2.5 text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg md:rounded-xl border border-zinc-200 transition-all bg-white shadow-sm"
+                    title="Exportar Excel"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5 md:w-4.5 md:h-4.5" />
+                  </button>
+                  <button
+                    onClick={() => triggerPrint("#documentos-fecha-reporte")}
+                    className="p-2 md:p-2.5 text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg md:rounded-xl border border-zinc-200 transition-all bg-white shadow-sm"
+                    title="Imprimir"
+                  >
+                    <Printer className="w-3.5 h-3.5 md:w-4.5 md:h-4.5" />
+                  </button>
+                </div>
               </div>
             </div>
-          )}
-        </div>
+
+            {/* Mobile View: Cards */}
+            <div className="block lg:hidden divide-y divide-zinc-100">
+              {listaVisible.length === 0 ? (
+                <div className="px-8 py-20 text-center flex flex-col items-center gap-4 text-zinc-300">
+                  <Search className="w-10 h-10 opacity-20" />
+                  <p className="text-xs font-bold opacity-50">No hay documentos para esta vista.</p>
+                </div>
+              ) : (
+                listaVisible.map((d, i) => {
+                  const siiStatus = d.estadoSII === 2;
+                  const dynStatus = d.estadoEnvio === 3;
+                  const dynWarn = d.estadoEnvio === 1 || d.estadoEnvio === 2;
+
+                  return (
+                    <motion.div
+                      key={d.idDocumento ?? `${d.tipo}-${d.numero}`}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: i * 0.01 }}
+                      className="p-5 space-y-4 active:bg-zinc-50 transition-colors"
+                      onClick={() => onVerDetalle(d.numero)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <span className="px-2 py-0.5 rounded-md bg-zinc-900 text-white text-[9px] font-black tracking-tight">
+                            {d.tipo}
+                          </span>
+                          <span className="text-sm font-black text-zinc-900 tabular-nums">#{d.numero}</span>
+                        </div>
+                        <ArrowUpRight className="w-4 h-4 text-zinc-300" />
+                      </div>
+
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">SII</span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${siiStatus ? "bg-emerald-50 text-emerald-700 border-emerald-100/50" : "bg-rose-50 text-rose-700 border-rose-100/50"
+                            }`}>
+                            {getSiiLabel(d.estadoSII)}
+                          </span>
+                        </div>
+                        <div className="flex flex-col gap-1 items-end">
+                          <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Dynamics</span>
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${dynStatus
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
+                              : dynWarn
+                                ? "bg-amber-50 text-amber-700 border-amber-100/50"
+                                : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                            }`}>
+                            {getDynLabel(d.estadoEnvio)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2">
+                        <div className="flex items-center gap-1 text-zinc-400">
+                          <Clock className="w-3 h-3 opacity-50" />
+                          <span className="text-[10px] font-semibold">{d.fechaEmision.slice(11, 16)}</span>
+                        </div>
+                        <div className="text-[10px] font-bold text-zinc-600">
+                          {d.lineasGestion} <span className="opacity-50">LÍNEAS</span>
+                        </div>
+                      </div>
+                    </motion.div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop View: Main Table */}
+            <div className="hidden lg:block overflow-x-auto">
+              <table className="w-full text-sm border-separate border-spacing-0">
+                <thead>
+                  <tr className="text-left bg-zinc-50/30">
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100">
+                      <div className="flex items-center gap-2">
+                        TIPO
+                        <select
+                          value={filtroColTipo}
+                          onChange={e => setFiltroColTipo(e.target.value)}
+                          className="bg-transparent border-none text-[10px] p-0 font-black text-indigo-500 focus:ring-0 appearance-none cursor-pointer"
+                        >
+                          <option value="">(TODOS)</option>
+                          <option value="BLE">BLE</option>
+                          <option value="FCV">FCV</option>
+                          <option value="NCV">NCV</option>
+                        </select>
+                      </div>
+                    </th>
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100">DOCUMENTO</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100 hidden lg:table-cell">EMISIÓN</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100">
+                      <div className="flex items-center gap-2">
+                        SII
+                        <select
+                          value={filtroColSII}
+                          onChange={e => setFiltroColSII(e.target.value)}
+                          className="bg-transparent border-none text-[10px] p-0 font-black text-indigo-500 focus:ring-0 appearance-none cursor-pointer"
+                        >
+                          <option value="">(TODOS)</option>
+                          <option value="2">Timbrado</option>
+                          <option value="1">Sin timbrar</option>
+                        </select>
+                      </div>
+                    </th>
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100">
+                      <div className="flex items-center gap-2">
+                        DYNAMICS
+                        <select
+                          value={filtroColDynamics}
+                          onChange={e => setFiltroColDynamics(e.target.value)}
+                          className="bg-transparent border-none text-[10px] p-0 font-black text-indigo-500 focus:ring-0 appearance-none cursor-pointer"
+                        >
+                          <option value="">(TODOS)</option>
+                          <option value="0">Pendiente</option>
+                          <option value="1">Enviado</option>
+                          <option value="2">Local OK</option>
+                          <option value="3">Registrado</option>
+                          <option value="4">Pág. Listo</option>
+                        </select>
+                      </div>
+                    </th>
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100 text-right">LÍNEAS</th>
+                    <th className="px-8 py-4 border-b border-zinc-100" />
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-50">
+                  {listaVisible.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-8 py-32 text-center">
+                        <div className="flex flex-col items-center gap-4 text-zinc-300">
+                          <Search className="w-12 h-12 opacity-20" />
+                          <p className="text-sm font-bold opacity-50">No hay documentos para esta vista.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    listaVisible.map((d, i) => {
+                      const siiStatus = d.estadoSII === 2;
+                      const dynStatus = d.estadoEnvio === 3;
+                      const dynWarn = d.estadoEnvio === 1 || d.estadoEnvio === 2;
+
+                      return (
+                        <motion.tr
+                          key={d.idDocumento ?? `${d.tipo}-${d.numero}`}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.01 }}
+                          className="hover:bg-zinc-50/80 transition-all duration-300 group"
+                        >
+                          <td className="px-8 py-4">
+                            <span className="inline-flex px-2 py-1 rounded-md bg-zinc-900 text-white text-[10px] font-black tracking-tight group-hover:scale-105 transition-transform">
+                              {d.tipo}
+                            </span>
+                          </td>
+                          <td className="px-8 py-4">
+                            <div className="flex flex-col">
+                              <span className="text-sm font-black text-zinc-900 tabular-nums">#{d.numero}</span>
+                              <span className="text-[10px] text-zinc-400 font-bold uppercase tracking-wider">{d.idDocumento.substring(0, 8)}...</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-4 hidden lg:table-cell">
+                            <div className="flex items-center gap-2 text-zinc-500">
+                              <Clock className="w-3.5 h-3.5 opacity-50" />
+                              <span className="text-xs font-semibold">{d.fechaEmision.slice(0, 16)}</span>
+                            </div>
+                          </td>
+                          <td className="px-8 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${siiStatus ? "bg-emerald-50 text-emerald-700 border-emerald-100/50" : "bg-rose-50 text-rose-700 border-rose-100/50"
+                              }`}>
+                              <div className={`w-1.5 h-1.5 rounded-full ${siiStatus ? "bg-emerald-500" : "bg-rose-500"}`} />
+                              {getSiiLabel(d.estadoSII)}
+                            </span>
+                          </td>
+                          <td className="px-8 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${dynStatus
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
+                                : dynWarn
+                                  ? "bg-amber-50 text-amber-700 border-amber-100/50"
+                                  : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                              }`}>
+                              <div className={`w-1.5 h-1.5 rounded-full ${dynStatus ? "bg-emerald-500" : dynWarn ? "bg-amber-500" : "bg-zinc-400"}`} />
+                              {getDynLabel(d.estadoEnvio)}
+                            </span>
+                          </td>
+                          <td className="px-8 py-4 text-right">
+                            <span className="text-sm font-black text-zinc-900">{d.lineasGestion}</span>
+                          </td>
+                          <td className="px-8 py-4 text-right">
+                            <button
+                              onClick={() => onVerDetalle(d.numero)}
+                              className="p-2 text-zinc-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all active:scale-90 border border-transparent hover:border-zinc-200 hover:shadow-sm"
+                            >
+                              <ArrowUpRight className="w-5 h-5" />
+                            </button>
+                          </td>
+                        </motion.tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Pagination / Footer */}
+            <div className="px-5 py-5 md:px-8 md:py-5 bg-zinc-900 border-t border-zinc-800 flex flex-col sm:flex-row flex-wrap items-center justify-between gap-4 md:gap-6">
+              <div className="flex items-center gap-4 md:gap-6 self-start sm:self-center">
+                <div className="flex items-center gap-2 text-[9px] md:text-[10px] font-black text-zinc-500 uppercase tracking-widest">
+                  <Info className="w-3 h-3 md:w-3.5 md:h-3.5" />
+                  <span className="hidden xs:inline">Mostrando</span> {desde}-{hasta} de {total}
+                </div>
+
+                <div className="h-4 w-px bg-zinc-800 hidden xs:block" />
+
+                <div className="flex items-center gap-2 md:gap-3">
+                  <span className="text-[9px] md:text-[10px] font-bold text-zinc-600 uppercase">Filas</span>
+                  <select
+                    value={pageSize}
+                    onChange={e => loadDocumentos(1, Number(e.target.value))}
+                    className="bg-zinc-800 border-zinc-700 rounded-lg text-[9px] md:text-[10px] font-black text-white px-2 py-1 outline-none focus:ring-2 focus:ring-indigo-500 transition-all appearance-none cursor-pointer pr-5 md:pr-6 relative"
+                    style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' fill=\'none\' viewBox=\'0 0 24 24\' stroke=\'white\'%3E%3Cpath stroke-linecap=\'round\' stroke-linejoin=\'round\' stroke-width=\'2\' d=\'M19 9l-7 7-7-7\'/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 4px center', backgroundSize: '10px md:12px' }}
+                  >
+                    {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {totalPaginas > 1 && (
+                <div className="flex items-center gap-2 md:gap-4 w-full sm:w-auto justify-center">
+                  <button
+                    onClick={() => handlePageChange(page - 1)}
+                    disabled={page <= 1 || loading}
+                    className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-zinc-800 text-white flex items-center justify-center hover:bg-zinc-700 transition-all border border-zinc-700 disabled:opacity-20 disabled:pointer-events-none active:scale-95 shadow-lg"
+                  >
+                    <ChevronLeft className="w-4 h-4 md:w-5 md:h-5" />
+                  </button>
+
+                  <div className="px-3 md:px-4 h-8 md:h-10 bg-zinc-800 rounded-xl border border-zinc-700 flex items-center gap-1.5 md:gap-2">
+                    <span className="text-[10px] md:text-[11px] font-black text-white tabular-nums">{page}</span>
+                    <span className="text-[9px] md:text-[10px] font-bold text-zinc-600 uppercase italic">de</span>
+                    <span className="text-[10px] md:text-[11px] font-black text-zinc-500 tabular-nums">{totalPaginas}</span>
+                  </div>
+
+                  <button
+                    onClick={() => handlePageChange(page + 1)}
+                    disabled={page >= totalPaginas || loading}
+                    className="w-8 h-8 md:w-10 md:h-10 rounded-xl bg-zinc-800 text-white flex items-center justify-center hover:bg-zinc-700 transition-all border border-zinc-700 disabled:opacity-20 disabled:pointer-events-none active:scale-95 shadow-lg"
+                  >
+                    <ChevronRight className="w-4 h-4 md:w-5 md:h-5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </AnimatePresence>
       )}
     </div>
   );
