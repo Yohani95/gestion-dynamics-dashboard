@@ -1,0 +1,34 @@
+# Deploy a servidor Windows interno
+# Se ejecuta al hacer push a main o manualmente
+name: Deploy to Windows Server
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, windows]  # Runner instalado en tu servidor Windows
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          # Variables de entorno para build (ajustar según tu .env)
+          NODE_ENV: production
+
+      - name: Deploy (detener anterior e iniciar nuevo)
+        run: .\scripts\deploy.ps1 -Port 3000
+        shell: pwsh
