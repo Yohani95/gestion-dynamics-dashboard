@@ -41,23 +41,25 @@ function canDisplayPrompt(installed: boolean) {
 }
 
 export default function PwaInstallPrompt() {
-  const [isInstalled, setIsInstalled] = useState(() =>
-    typeof window === "undefined" ? true : isStandaloneMode(),
-  );
-  const [canShow, setCanShow] = useState(() =>
-    typeof window === "undefined" ? false : canDisplayPrompt(isStandaloneMode()),
-  );
+  const [isReady, setIsReady] = useState(false);
+  const [isInstalled, setIsInstalled] = useState(true);
+  const [canShow, setCanShow] = useState(false);
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
-  const [isIOS] = useState(() =>
-    typeof window === "undefined" ? false : detectIOS(),
-  );
-  const [isSafari] = useState(() =>
-    typeof window === "undefined" ? false : detectSafari(),
-  );
+  const [isIOS, setIsIOS] = useState(false);
+  const [isSafari, setIsSafari] = useState(false);
   const [isInstalling, setIsInstalling] = useState(false);
 
   useEffect(() => {
+    const initializeId = window.setTimeout(() => {
+      const installed = isStandaloneMode();
+      setIsInstalled(installed);
+      setCanShow(canDisplayPrompt(installed));
+      setIsIOS(detectIOS());
+      setIsSafari(detectSafari());
+      setIsReady(true);
+    }, 0);
+
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
       navigator.serviceWorker.register("/sw.js").catch(() => {
         // Silent fail: install prompt still works without cache strategies.
@@ -89,6 +91,7 @@ export default function PwaInstallPrompt() {
     window.addEventListener("appinstalled", handleAppInstalled);
 
     return () => {
+      window.clearTimeout(initializeId);
       mediaQuery.removeEventListener("change", handleDisplayModeChange);
       window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
       window.removeEventListener("appinstalled", handleAppInstalled);
@@ -103,6 +106,11 @@ export default function PwaInstallPrompt() {
   const showInstallButton = useMemo(
     () => !isInstalled && deferredPrompt !== null && canShow,
     [canShow, deferredPrompt, isInstalled],
+  );
+
+  const showGenericHelp = useMemo(
+    () => !isInstalled && !isIOS && canShow,
+    [canShow, isIOS, isInstalled],
   );
 
   const dismissPrompt = () => {
@@ -125,7 +133,7 @@ export default function PwaInstallPrompt() {
     }
   };
 
-  if (!showInstallButton && !showIOSHelp) {
+  if (!isReady || (!showInstallButton && !showIOSHelp && !showGenericHelp)) {
     return null;
   }
 
@@ -133,9 +141,11 @@ export default function PwaInstallPrompt() {
     <div className="fixed bottom-4 right-4 z-[70] max-w-sm rounded-xl border border-zinc-200 bg-white p-4 shadow-xl">
       <p className="text-sm font-semibold text-zinc-900">Instala esta app</p>
       <p className="mt-1 text-sm text-zinc-600">
-        {!showInstallButton
-          ? "Para instalarla en iPhone/iPad: abre Compartir y elige Anadir a pantalla de inicio."
-          : "Instalala para abrirla mas rapido y usarla como aplicacion nativa."}
+        {showInstallButton
+          ? "Instalala para abrirla mas rapido y usarla como aplicacion nativa."
+          : showIOSHelp
+            ? "Para instalarla en iPhone/iPad: abre Compartir y elige Anadir a pantalla de inicio."
+            : "Si no aparece el boton de instalar, abre el menu del navegador y elige Instalar aplicacion."}
       </p>
 
       <div className="mt-3 flex items-center gap-2">
