@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { getPool } from "@/lib/db";
 
-export async function GET() {
+export async function GET(request: Request) {
     try {
-        const pool = await getPool();
+        const instance = request.headers.get("x-instance") || "default";
+        const pool = await getPool(instance);
 
         // Query ultra-optimizada con CTEs para limpiar duplicados historicos
         const query = `

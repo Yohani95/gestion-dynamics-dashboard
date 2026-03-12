@@ -1,14 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 type EmpresaRow = { Cod_Empresa: string; Descripcion: string };
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const instance = request.headers.get("x-instance") || "default";
   try {
     const rows = await query<EmpresaRow[]>(
-      "SELECT Cod_Empresa, Descripcion FROM Ges_Empresas WITH (NOLOCK) ORDER BY Descripcion"
+      "SELECT Cod_Empresa, Descripcion FROM Ges_Empresas WITH (NOLOCK) ORDER BY Descripcion",
+      {},
+      instance
     );
     const empresas = (rows ?? []).map((r) => ({
       codEmpresa: r.Cod_Empresa,

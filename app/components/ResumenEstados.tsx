@@ -8,6 +8,7 @@ import {
   AlertCircle, CheckCircle2, Printer
 } from "lucide-react";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
+import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 const RESUMEN_STORAGE_KEY = "gestion-dash-resumen";
 
@@ -17,14 +18,16 @@ type ResumenPersisted = {
   empresa: string;
   estados: number[];
   resumen?: ResumenItem[];
+  instanceId?: string;
 };
 
-function loadResumenPersisted(): ResumenPersisted | null {
+function loadResumenPersisted(currentInstance: string): ResumenPersisted | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = sessionStorage.getItem(RESUMEN_STORAGE_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as Partial<ResumenPersisted>;
+    if (p.instanceId && p.instanceId !== currentInstance) return null;
     return {
       fechaDesde: p.fechaDesde ?? "",
       fechaHasta: p.fechaHasta ?? "",
@@ -37,11 +40,12 @@ function loadResumenPersisted(): ResumenPersisted | null {
   }
 }
 
-function saveResumenPersisted(p: ResumenPersisted) {
+function saveResumenPersisted(p: ResumenPersisted, currentInstance: string) {
   try {
-    sessionStorage.setItem(RESUMEN_STORAGE_KEY, JSON.stringify(p));
+    sessionStorage.setItem(RESUMEN_STORAGE_KEY, JSON.stringify({ ...p, instanceId: currentInstance }));
   } catch { }
 }
+
 
 type ResumenItem = {
   descripcion: string;
@@ -63,6 +67,7 @@ const ESTADOS: { valor: number; etiqueta: string }[] = [
 ];
 
 export default function ResumenEstados() {
+  const { instance } = useInstance();
   const [fechaDesde, setFechaDesde] = useState("");
   const [fechaHasta, setFechaHasta] = useState("");
   const [estados, setEstados] = useState<number[]>([0, 1, 2, 3, 4]);
@@ -74,20 +79,23 @@ export default function ResumenEstados() {
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
 
   useEffect(() => {
-    const p = loadResumenPersisted();
+    const p = loadResumenPersisted(instance);
     if (p) {
       setFechaDesde(p.fechaDesde);
       setFechaHasta(p.fechaHasta ?? "");
       setEmpresa(p.empresa);
       setEstados(p.estados);
       if (p.resumen) setResumen(p.resumen);
+    } else {
+      // Si no hay persistencia para esta instancia, limpiamos el resumen
+      setResumen(null);
     }
-  }, []);
+  }, [instance]);
 
   useEffect(() => {
     let cancelled = false;
     setLoadingEmpresas(true);
-    fetch("/api/empresas")
+    fetchWithInstance("/api/empresas", {}, instance)
       .then((r) => r.json())
       .then((json) => {
         if (!cancelled && json.empresas) setEmpresas(json.empresas);
@@ -95,7 +103,7 @@ export default function ResumenEstados() {
       .catch(() => { })
       .finally(() => { if (!cancelled) setLoadingEmpresas(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [instance]);
 
   function toggleEstado(valor: number) {
     setEstados((prev) =>
@@ -122,7 +130,8 @@ export default function ResumenEstados() {
       const fHasta = fechaHasta.trim();
       if (fHasta) params.set("fechaHasta", fHasta);
       if (empresa) params.set("empresa", empresa);
-      const res = await fetch(`/api/resumen-estados?${params.toString()}`);
+
+      const res = await fetchWithInstance(`/api/resumen-estados?${params.toString()}`, {}, instance);
       const json = await res.json();
       if (!res.ok) {
         setError(json.error ?? "Error al cargar");
@@ -130,7 +139,7 @@ export default function ResumenEstados() {
       }
       const resumenData = json.resumen ?? [];
       setResumen(resumenData);
-      saveResumenPersisted({ fechaDesde: f, fechaHasta: fHasta, empresa, estados, resumen: resumenData });
+      saveResumenPersisted({ fechaDesde: f, fechaHasta: fHasta, empresa, estados, resumen: resumenData }, instance);
     } catch (err) {
       setError(String(err));
       setResumen([]);

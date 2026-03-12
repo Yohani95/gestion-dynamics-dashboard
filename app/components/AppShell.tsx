@@ -6,6 +6,9 @@ import { usePathname } from "next/navigation";
 import Image from "next/image";
 import { motion, AnimatePresence } from "framer-motion";
 import { LayoutDashboard, ArrowRightLeft, Menu, X, ChevronRight } from "lucide-react";
+import { InstanceProvider } from "./InstanceContext";
+import InstanceSelector from "./InstanceSelector";
+import PwaInstallPrompt from "./PwaInstallPrompt";
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
     const pathname = usePathname();
@@ -52,8 +55,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                             href={item.href}
                             onClick={() => setIsMobileOpen(false)}
                             className={`group flex items-center rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 relative overflow-hidden ${isActive
-                                    ? "bg-zinc-800/80 text-white shadow-sm"
-                                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                                ? "bg-zinc-800/80 text-white shadow-sm"
+                                : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
                                 }`}
                         >
                             {isActive && (
@@ -113,86 +116,92 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     );
 
     return (
-        <div className="bg-zinc-50 min-h-screen font-sans selection:bg-zinc-900 selection:text-white">
-            {/* Mobile Sidebar Navigation */}
-            <AnimatePresence>
-                {isMobileOpen && (
-                    <>
-                        <motion.div
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setIsMobileOpen(false)}
-                            className="fixed inset-0 z-40 bg-zinc-950/40 backdrop-blur-sm lg:hidden"
-                        />
-                        <motion.div
-                            initial={{ x: "-100%" }}
-                            animate={{ x: 0 }}
-                            exit={{ x: "-100%" }}
-                            transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-                            className="fixed inset-y-0 left-0 z-50 w-72 lg:hidden shadow-2xl"
-                        >
-                            <SidebarContent />
-                        </motion.div>
-                    </>
-                )}
-            </AnimatePresence>
+        <InstanceProvider>
+            <div className="bg-zinc-50 min-h-screen font-sans selection:bg-zinc-900 selection:text-white">
 
-            {/* Desktop Sidebar */}
-            <motion.div
-                animate={{ width: isDesktopCollapsed ? "5rem" : "18rem" }}
-                transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-                className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] border-r border-zinc-200/50 isolate"
-            >
-                <SidebarContent />
+                {/* Mobile Sidebar Navigation */}
+                <AnimatePresence>
+                    {isMobileOpen && (
+                        <>
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={() => setIsMobileOpen(false)}
+                                className="fixed inset-0 z-40 bg-zinc-950/40 backdrop-blur-sm lg:hidden"
+                            />
+                            <motion.div
+                                initial={{ x: "-100%" }}
+                                animate={{ x: 0 }}
+                                exit={{ x: "-100%" }}
+                                transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+                                className="fixed inset-y-0 left-0 z-50 w-72 lg:hidden shadow-2xl"
+                            >
+                                <SidebarContent />
+                            </motion.div>
+                        </>
+                    )}
+                </AnimatePresence>
 
-                {/* Collapse Toggle Button */}
-                <button
-                    onClick={() => setIsDesktopCollapsed(!isDesktopCollapsed)}
-                    className="absolute -right-3.5 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white border border-zinc-200 shadow-sm text-zinc-400 hover:text-zinc-900 transition-colors z-[60]"
+                {/* Desktop Sidebar */}
+                <motion.div
+                    animate={{ width: isDesktopCollapsed ? "5rem" : "18rem" }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+                    className="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:flex-col shadow-[4px_0_24px_rgba(0,0,0,0.02)] border-r border-zinc-200/50 isolate"
                 >
-                    <motion.div animate={{ rotate: isDesktopCollapsed ? 180 : 0 }}>
-                        <ChevronRight className="h-4 w-4" />
-                    </motion.div>
-                </button>
-            </motion.div>
+                    <SidebarContent />
 
-            {/* Main Content Area */}
-            <motion.div
-                animate={{ paddingLeft: isDesktopCollapsed ? "5rem" : "18rem" }}
-                transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-                className="flex flex-col flex-1 w-full lg:min-h-screen transition-all"
-            >
-                {/* Top Header for Mobile & Breadcrumbs for Desktop */}
-                <div className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-x-4 border-b border-zinc-200/50 bg-white/80 backdrop-blur-md px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+                    {/* Collapse Toggle Button */}
                     <button
-                        type="button"
-                        className="-m-2.5 p-2.5 text-zinc-700 lg:hidden hover:bg-zinc-100 rounded-lg transition-colors"
-                        onClick={() => setIsMobileOpen(true)}
+                        onClick={() => setIsDesktopCollapsed(!isDesktopCollapsed)}
+                        className="absolute -right-3.5 top-1/2 -translate-y-1/2 flex h-7 w-7 items-center justify-center rounded-full bg-white border border-zinc-200 shadow-sm text-zinc-400 hover:text-zinc-900 transition-colors z-[60]"
                     >
-                        <span className="sr-only">Open sidebar</span>
-                        <Menu className="h-6 w-6" aria-hidden="true" />
+                        <motion.div animate={{ rotate: isDesktopCollapsed ? 180 : 0 }}>
+                            <ChevronRight className="h-4 w-4" />
+                        </motion.div>
                     </button>
+                </motion.div>
 
-                    {/* Separator */}
-                    <div className="h-6 w-px bg-zinc-200 lg:hidden" aria-hidden="true" />
+                {/* Main Content Area */}
+                <motion.div
+                    animate={{ paddingLeft: isDesktopCollapsed ? "5rem" : "18rem" }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.4 }}
+                    className="flex flex-col flex-1 w-full lg:min-h-screen transition-all"
+                >
+                    {/* Top Header for Mobile & Breadcrumbs for Desktop */}
+                    <div className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-x-4 border-b border-zinc-200/50 bg-white/80 backdrop-blur-md px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+                        <button
+                            type="button"
+                            className="-m-2.5 p-2.5 text-zinc-700 lg:hidden hover:bg-zinc-100 rounded-lg transition-colors"
+                            onClick={() => setIsMobileOpen(true)}
+                        >
+                            <span className="sr-only">Open sidebar</span>
+                            <Menu className="h-6 w-6" aria-hidden="true" />
+                        </button>
 
-                    <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6 items-center">
-                        <h1 className="text-sm font-semibold text-zinc-800 tracking-tight">
-                            {pathname === "/" ? "Diagnóstico Integración Dynamics" : "Gestión de Transferencias"}
-                        </h1>
-                        <div className="flex items-center gap-x-4 ml-auto lg:gap-x-6">
-                            {/* Optional: Add header elements here like a search or notifications */}
+                        {/* Separator */}
+                        <div className="h-6 w-px bg-zinc-200 lg:hidden" aria-hidden="true" />
+
+                        <div className="flex flex-1 gap-x-4 self-stretch lg:gap-x-6 items-center">
+                            <h1 className="text-sm font-semibold text-zinc-800 tracking-tight">
+                                {pathname === "/" ? "Diagnóstico Integración Dynamics" : "Gestión de Transferencias"}
+                            </h1>
+                            <div className="flex items-center gap-x-4 ml-auto lg:gap-x-6">
+                                <InstanceSelector />
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <main className="flex-1 pb-10">
-                    <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {children}
-                    </div>
-                </main>
-            </motion.div>
-        </div>
+                    <main className="flex-1 pb-10">
+                        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            {children}
+                        </div>
+                    </main>
+                </motion.div>
+
+                <PwaInstallPrompt />
+            </div>
+        </InstanceProvider>
     );
 }
+

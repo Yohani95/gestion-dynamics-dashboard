@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search, Calendar, Building2, FileText, Download,
@@ -9,6 +9,7 @@ import {
   Clock, Info, MoreHorizontal, RefreshCw
 } from "lucide-react";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
+import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 type DocItem = {
   tipo: string;
@@ -19,6 +20,7 @@ type DocItem = {
   estadoSII: number | null;
   estadoEnvio: number | null;
   lineasGestion: number;
+  lineasDynamicsOk: number;
 };
 
 type Empresa = { codEmpresa: string; descripcion: string };
@@ -36,18 +38,31 @@ const getDynLabel = (e: number | null) => {
     1: "Enviada",
     2: "Loc. OK",
     3: "Registrado",
-    4: "Medio pago",
+    4: "Medio de pago listo",
   };
   return t[e] ?? e;
 };
 
-const PAGE_SIZES = [25, 50, 100, 200];
-const STORAGE_KEY = "gestion-dash-lista";
+function getLineasSyncState(doc: DocItem) {
+  const total = Math.max(0, doc.lineasGestion ?? 0);
+  const syncedRaw = Math.max(0, doc.lineasDynamicsOk ?? 0);
+  const synced = Math.min(total, syncedRaw);
+  const hasLineas = total > 0;
+  const complete = hasLineas && synced >= total;
+  return { total, synced, hasLineas, complete };
+}
 
-function loadPersisted() {
+const PAGE_SIZES = [25, 50, 100, 200];
+const STORAGE_KEY_BASE = "gestion-dash-lista";
+
+function getStorageKey(instance: string) {
+  return `${STORAGE_KEY_BASE}-${instance}`;
+}
+
+function loadPersisted(instance: string) {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(STORAGE_KEY);
+    const raw = sessionStorage.getItem(getStorageKey(instance));
     if (!raw) return null;
     return JSON.parse(raw) as { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number };
   } catch {
@@ -55,13 +70,14 @@ function loadPersisted() {
   }
 }
 
-function savePersisted(p: { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number }) {
+function savePersisted(instance: string, p: { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number }) {
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    sessionStorage.setItem(getStorageKey(instance), JSON.stringify(p));
   } catch { }
 }
 
 export default function DocumentosPorFecha({ onVerDetalle }: Props) {
+  const { instance } = useInstance();
   const [fecha, setFecha] = useState("");
   const [empresa, setEmpresa] = useState("");
   const [tipo, setTipo] = useState("");
@@ -81,7 +97,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
   const [filtroColDynamics, setFiltroColDynamics] = useState("");
 
   useEffect(() => {
-    const p = loadPersisted();
+    const p = loadPersisted(instance);
     if (p) {
       setFecha(p.fecha);
       setEmpresa(p.empresa);
@@ -89,21 +105,32 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       setNumeroFilter(p.numero);
       setPage(p.page);
       setPageSize(p.pageSize);
+      return;
     }
-  }, []);
+    setEmpresa("");
+    setTipo("");
+    setNumeroFilter("");
+    setPage(1);
+    setPageSize(50);
+  }, [instance]);
 
   useEffect(() => {
     let cancelled = false;
     setLoadingEmpresas(true);
-    fetch("/api/empresas")
+    fetchWithInstance("/api/empresas", {}, instance)
       .then((r) => r.json())
       .then((json) => {
-        if (!cancelled && json.empresas) setEmpresas(json.empresas);
+        if (!cancelled && json.empresas) {
+          const rows = json.empresas as Empresa[];
+          setEmpresas(rows);
+          // Si la empresa persistida no existe en la instancia actual, limpiar filtro.
+          setEmpresa((prev) => (prev && !rows.some((e) => e.codEmpresa === prev) ? "" : prev));
+        }
       })
       .catch(() => { })
       .finally(() => { if (!cancelled) setLoadingEmpresas(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [instance]);
 
   async function loadDocumentos(pageNum: number = page, overridePageSize?: number) {
     const f = fecha.trim();
@@ -120,7 +147,11 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       if (empresa) params.set("empresa", empresa);
       if (tipo) params.set("tipo", tipo);
       if (numeroFilter.trim()) params.set("numero", numeroFilter.trim());
-      const res = await fetch(`/api/documentos?${params.toString()}`);
+      if (filtroTabla.trim()) params.set("search", filtroTabla.trim());
+      if (filtroColTipo) params.set("tipoCol", filtroColTipo);
+      if (filtroColSII !== "") params.set("sii", filtroColSII);
+      if (filtroColDynamics !== "") params.set("dynamics", filtroColDynamics);
+      const res = await fetchWithInstance(`/api/documentos?${params.toString()}`, {}, instance);
       const json = await res.json();
       if (!res.ok) {
         setError(json.error ?? "Error al cargar");
@@ -134,7 +165,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       setTotalPaginas(json.totalPaginas ?? 1);
       setPage(pageNum);
       if (overridePageSize != null) setPageSize(overridePageSize);
-      savePersisted({ fecha: f, empresa, tipo, numero: numeroFilter, page: pageNum, pageSize: size });
+      savePersisted(instance, { fecha: f, empresa, tipo, numero: numeroFilter, page: pageNum, pageSize: size });
     } catch (err) {
       setError(String(err));
       setList([]);
@@ -156,31 +187,20 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
     loadDocumentos(nextPage);
   }
 
+  useEffect(() => {
+    if (list == null) return;
+    const t = setTimeout(() => {
+      loadDocumentos(1);
+    }, 250);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtroTabla, filtroColTipo, filtroColSII, filtroColDynamics]);
+
   const hoy = new Date().toISOString().slice(0, 10);
   const desde = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const hasta = Math.min(page * pageSize, total);
 
-  const filtroTrim = filtroTabla.trim().toLowerCase();
-  const listaVisible = useMemo(() => {
-    return (list ?? []).filter((d) => {
-      if (filtroTrim && !String(d.numero).toLowerCase().includes(filtroTrim) && !d.tipo.toLowerCase().includes(filtroTrim))
-        return false;
-      if (filtroColTipo && d.tipo !== filtroColTipo) return false;
-      if (filtroColSII !== "" && (d.estadoSII ?? -1) !== Number(filtroColSII)) return false;
-      if (filtroColDynamics !== "") {
-        const target = Number(filtroColDynamics);
-        const val = d.estadoEnvio;
-        if (target === 0) {
-          if (!(val == null || val === 0)) return false;
-        } else if (val !== target) {
-          return false;
-        }
-      }
-      return true;
-    });
-  }, [list, filtroTrim, filtroColTipo, filtroColSII, filtroColDynamics]);
-
-  const hayFiltrosColumna = filtroColTipo || filtroColSII !== "" || filtroColDynamics !== "" || filtroTrim;
+  const listaVisible = list ?? [];
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6 md:space-y-8 pb-10 px-4 md:px-0">
@@ -339,8 +359,11 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                 <div className="flex items-center gap-1.5 md:gap-2">
                   <button
                     onClick={async () => {
-                      const headers = ["Tipo", "Número", "Emisión", "SII", "Dynamics", "Líneas"];
-                      const rows = listaVisible.map(d => [d.tipo, d.numero, d.fechaEmision, getSiiLabel(d.estadoSII), getDynLabel(d.estadoEnvio), d.lineasGestion]);
+                      const headers = ["Tipo", "Número", "Emisión", "SII", "Dynamics", "Líneas Total/Sync"];
+                      const rows = listaVisible.map((d) => {
+                        const lineasState = getLineasSyncState(d);
+                        return [d.tipo, d.numero, d.fechaEmision, getSiiLabel(d.estadoSII), getDynLabel(d.estadoEnvio), `${lineasState.total}/${lineasState.synced}`];
+                      });
                       await downloadXlsxTable({ filename: `reporte-docs-${fecha}`, sheetName: "Docs", headers, rows });
                     }}
                     className="p-2 md:p-2.5 text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg md:rounded-xl border border-zinc-200 transition-all bg-white shadow-sm"
@@ -371,6 +394,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                   const siiStatus = d.estadoSII === 2;
                   const dynStatus = d.estadoEnvio === 3;
                   const dynWarn = d.estadoEnvio === 1 || d.estadoEnvio === 2;
+                  const lineasState = getLineasSyncState(d);
 
                   return (
                     <motion.div
@@ -402,10 +426,10 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                         <div className="flex flex-col gap-1 items-end">
                           <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider">Dynamics</span>
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-tight border ${dynStatus
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
-                              : dynWarn
-                                ? "bg-amber-50 text-amber-700 border-amber-100/50"
-                                : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
+                            : dynWarn
+                              ? "bg-amber-50 text-amber-700 border-amber-100/50"
+                              : "bg-zinc-50 text-zinc-600 border-zinc-100"
                             }`}>
                             {getDynLabel(d.estadoEnvio)}
                           </span>
@@ -417,8 +441,8 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                           <Clock className="w-3 h-3 opacity-50" />
                           <span className="text-[10px] font-semibold">{d.fechaEmision.slice(11, 16)}</span>
                         </div>
-                        <div className="text-[10px] font-bold text-zinc-600">
-                          {d.lineasGestion} <span className="opacity-50">LÍNEAS</span>
+                        <div className={`text-[10px] font-bold ${!lineasState.hasLineas ? "text-zinc-600" : lineasState.complete ? "text-emerald-700" : "text-amber-700"}`}>
+                          {lineasState.total}/{lineasState.synced} <span className="opacity-60">LÍNEAS</span>
                         </div>
                       </div>
                     </motion.div>
@@ -472,15 +496,15 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                           className="bg-transparent border-none text-[10px] p-0 font-black text-indigo-500 focus:ring-0 appearance-none cursor-pointer"
                         >
                           <option value="">(TODOS)</option>
-                          <option value="0">Pendiente</option>
-                          <option value="1">Enviado</option>
-                          <option value="2">Local OK</option>
+                          <option value="0">Sin enviar</option>
+                          <option value="1">Enviada</option>
+                          <option value="2">Loc. OK</option>
                           <option value="3">Registrado</option>
-                          <option value="4">Pág. Listo</option>
+                          <option value="4">Medio de pago listo</option>
                         </select>
                       </div>
                     </th>
-                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100 text-right">LÍNEAS</th>
+                    <th className="px-8 py-4 text-[10px] font-black text-zinc-400 uppercase tracking-widest border-b border-zinc-100 text-right">LÍNEAS T/S</th>
                     <th className="px-8 py-4 border-b border-zinc-100" />
                   </tr>
                 </thead>
@@ -499,6 +523,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                       const siiStatus = d.estadoSII === 2;
                       const dynStatus = d.estadoEnvio === 3;
                       const dynWarn = d.estadoEnvio === 1 || d.estadoEnvio === 2;
+                      const lineasState = getLineasSyncState(d);
 
                       return (
                         <motion.tr
@@ -534,17 +559,19 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                           </td>
                           <td className="px-8 py-4">
                             <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${dynStatus
-                                ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
-                                : dynWarn
-                                  ? "bg-amber-50 text-amber-700 border-amber-100/50"
-                                  : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                              ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
+                              : dynWarn
+                                ? "bg-amber-50 text-amber-700 border-amber-100/50"
+                                : "bg-zinc-50 text-zinc-600 border-zinc-100"
                               }`}>
                               <div className={`w-1.5 h-1.5 rounded-full ${dynStatus ? "bg-emerald-500" : dynWarn ? "bg-amber-500" : "bg-zinc-400"}`} />
                               {getDynLabel(d.estadoEnvio)}
                             </span>
                           </td>
                           <td className="px-8 py-4 text-right">
-                            <span className="text-sm font-black text-zinc-900">{d.lineasGestion}</span>
+                            <span className={`text-sm font-black ${!lineasState.hasLineas ? "text-zinc-700" : lineasState.complete ? "text-emerald-700" : "text-amber-700"}`}>
+                              {lineasState.total}/{lineasState.synced}
+                            </span>
                           </td>
                           <td className="px-8 py-4 text-right">
                             <button

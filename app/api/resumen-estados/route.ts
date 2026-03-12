@@ -15,6 +15,7 @@ type ResumenRow = {
 const ESTADOS_VALIDOS = [0, 1, 2, 3, 4];
 
 export async function GET(request: NextRequest) {
+  const instance = request.headers.get("x-instance") || "default";
   let fechaDesde = request.nextUrl.searchParams.get("fechaDesde")?.trim() ?? "";
   const fechaHastaParam = request.nextUrl.searchParams.get("fechaHasta")?.trim() ?? "";
 
@@ -128,7 +129,7 @@ export async function GET(request: NextRequest) {
       fechaHasta: fechaHasta || "",
       estados: estadosStr,
       empresa,
-    });
+    }, instance);
 
     const resumen = (rows ?? []).map((r) => ({
       descripcion: r.Descripcion,

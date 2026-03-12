@@ -11,6 +11,7 @@ type DocInfo = {
 };
 
 export async function POST(request: NextRequest) {
+  const instance = request.headers.get("x-instance") || "default";
   let body: { numero?: string; idDocumento?: string; codEmpresa?: string; fecha?: string };
   try {
     body = await request.json();
@@ -45,8 +46,9 @@ export async function POST(request: NextRequest) {
         FROM Ges_NcvCabecera Cab WITH (NOLOCK)
         WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
       ) U
+      ORDER BY Fecha_Emision DESC, Tipo ASC, Id_Documento DESC
     `;
-    const rows = await query<DocInfo[]>(sqlDoc, { numero });
+    const rows = await query<DocInfo[]>(sqlDoc, { numero }, instance);
     const doc = rows?.[0];
     if (!doc) {
       return NextResponse.json(
@@ -65,7 +67,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const pool = await getPool();
+    const pool = await getPool(instance);
     const req = pool.request();
     req.input("Cod_Empresa", sql.UniqueIdentifier, codEmpresa);
     req.input("Fecha", sql.Date, new Date(fecha));

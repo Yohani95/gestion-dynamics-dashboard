@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 type Linea = {
   nroLinea: number;
@@ -33,6 +34,7 @@ const estadoLabel: Record<number, string> = {
 };
 
 export default function DetalleLineas({ idDocumento, tipo }: Props) {
+  const { instance } = useInstance();
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
     setLoading(true);
     setError(null);
     const params = new URLSearchParams({ idDocumento, tipo });
-    fetch(`/api/documento/lineas?${params}`)
+    fetchWithInstance(`/api/documento/lineas?${params}`, {}, instance)
       .then((res) => res.json())
       .then((json) => {
         if (json.error) {
@@ -57,7 +59,7 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
         setLineas([]);
       })
       .finally(() => setLoading(false));
-  }, [idDocumento, tipo]);
+  }, [idDocumento, tipo, instance]);
 
   if (loading) {
     return (

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, ChevronDown, ChevronRight, Clock, RefreshCw, XCircle, AlertCircle, FileJson, Copy, Check, Search } from "lucide-react";
 import { formatDateLocal } from "@/lib/formatUtils";
+import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 interface LogEntry {
     Traspaso: string;
@@ -14,6 +15,7 @@ interface LogEntry {
 }
 
 export default function HistorialLogs() {
+    const { instance } = useInstance();
     const [logs, setLogs] = useState<LogEntry[]>([]);
     const [loading, setLoading] = useState(false);
     const [limit, setLimit] = useState(20);
@@ -26,7 +28,7 @@ export default function HistorialLogs() {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch(`/api/transferencias/logs?limite=${fetchLimit}`);
+            const res = await fetchWithInstance(`/api/transferencias/logs?limite=${fetchLimit}`, {}, instance);
             const json = await res.json();
             if (json.success) {
                 setLogs(json.data);
@@ -42,7 +44,7 @@ export default function HistorialLogs() {
 
     useEffect(() => {
         fetchLogs(limit);
-    }, [limit]);
+    }, [limit, instance]);
 
     const toggleRow = (id: string, index: number) => {
         const key = `${id}-${index}`;

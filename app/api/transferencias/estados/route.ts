@@ -9,7 +9,8 @@ export async function GET(request: Request) {
         const search = searchParams.get("search") || "";
         const limit = parseInt(searchParams.get("limit") || "50", 10);
 
-        const pool = await getPool();
+        const instance = request.headers.get("x-instance") || "default";
+        const pool = await getPool(instance);
         const req = pool.request();
 
         let query = `

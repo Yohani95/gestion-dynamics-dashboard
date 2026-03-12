@@ -5,18 +5,22 @@
 export const formatDateLocal = (dateInput: string | Date | null | undefined) => {
     if (!dateInput) return "-";
 
+    // Si es un string de solo fecha (YYYY-MM-DD), lo retornamos formateado directamente
+    // para evitar que el objeto Date lo convierta a UTC y lo mueva de día.
+    if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+        const [year, month, day] = dateInput.split('-');
+        return `${day}/${month}/${year}`;
+    }
+
     let date: Date;
 
     if (typeof dateInput === 'string') {
-        // SQL Server suele enviar: 2026-03-10T12:00:00.000Z o 2026-03-10 12:00:00
-        // Eliminamos la 'Z' y reemplazamos espacio por 'T' para forzar interpretación LOCAL
         const cleanStr = dateInput.replace("Z", "").replace(" ", "T");
         date = new Date(cleanStr);
     } else {
         date = dateInput;
     }
 
-    // Verificamos si la fecha es válida
     if (isNaN(date.getTime())) return String(dateInput);
 
     return date.toLocaleString("es-CL", {

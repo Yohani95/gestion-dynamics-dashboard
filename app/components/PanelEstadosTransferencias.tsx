@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Search, RefreshCw, CheckCircle2, AlertCircle, Clock, Send, Play, Check, X, Filter, HelpCircle, AlertTriangle } from "lucide-react";
 import { formatDateLocal } from "@/lib/formatUtils";
+import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 interface EstadoTraspaso {
     Id_EstadoEnvioTraspasos: string;
@@ -14,6 +15,7 @@ interface EstadoTraspaso {
 }
 
 export default function PanelEstadosTransferencias() {
+    const { instance } = useInstance();
     const [data, setData] = useState<EstadoTraspaso[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -31,7 +33,7 @@ export default function PanelEstadosTransferencias() {
                 search: searchTerm,
                 limit: "50"
             });
-            const res = await fetch(`/api/transferencias/estados?${params.toString()}`);
+            const res = await fetchWithInstance(`/api/transferencias/estados?${params.toString()}`, {}, instance);
             const json = await res.json();
             if (json.success) {
                 setData(json.data);
@@ -50,16 +52,16 @@ export default function PanelEstadosTransferencias() {
             fetchData();
         }, 500);
         return () => clearTimeout(timer);
-    }, [searchTerm, filterEstado]);
+    }, [searchTerm, filterEstado, instance]);
 
     const ejecutarAccion = async (id: string, accion: "REINTENTAR" | "TERMINAR") => {
         setUpdatingId(id);
         try {
-            const res = await fetch("/api/transferencias/estados/accion", {
+            const res = await fetchWithInstance("/api/transferencias/estados/accion", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ id, accion })
-            });
+            }, instance);
             const json = await res.json();
             if (json.success) {
                 setConfirmCloseId(null);

@@ -13,6 +13,7 @@ type LineaRow = {
 };
 
 export async function GET(request: NextRequest) {
+  const instance = request.headers.get("x-instance") || "default";
   const idDocumento = request.nextUrl.searchParams.get("idDocumento")?.trim();
   const tipo = request.nextUrl.searchParams.get("tipo")?.trim()?.toUpperCase();
 
@@ -57,7 +58,7 @@ export async function GET(request: NextRequest) {
       `;
     }
 
-    const rows = await query<LineaRow[]>(sqlLineas, { idDocumento });
+    const rows = await query<LineaRow[]>(sqlLineas, { idDocumento }, instance);
 
     const lineas = (rows ?? []).map((r) => ({
       nroLinea: r.Nro_Linea,

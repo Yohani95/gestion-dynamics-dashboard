@@ -17,6 +17,7 @@ import {
     AlertTriangle
 } from "lucide-react";
 import { formatDateLocal } from "@/lib/formatUtils";
+import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 interface RecienteError {
     Traspaso: string;
@@ -31,6 +32,7 @@ interface RecienteError {
 }
 
 export default function ErroresRecientes() {
+    const { instance } = useInstance();
     const [data, setData] = useState<RecienteError[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -42,7 +44,7 @@ export default function ErroresRecientes() {
         setLoading(true);
         setError(null);
         try {
-            const res = await fetch("/api/transferencias/errores-recientes");
+            const res = await fetchWithInstance("/api/transferencias/errores-recientes", {}, instance);
             const json = await res.json();
             if (json.success) {
                 setData(json.data);
@@ -58,7 +60,7 @@ export default function ErroresRecientes() {
 
     useEffect(() => {
         fetchData();
-    }, []);
+    }, [instance]);
 
     const toggleRow = (id: string, index: number) => {
         const key = `${id}-${index}`;

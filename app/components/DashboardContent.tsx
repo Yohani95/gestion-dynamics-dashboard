@@ -24,7 +24,8 @@ function loadSavedTab(): TabId {
 
 export default function DashboardContent() {
   const [activeTab, setActiveTab] = useState<TabId>("documento");
-  const [detalleNumero, setDetalleNumero] = useState<string | null>(null);
+  type DetalleParam = { numero: string; tipo?: string; empresa?: string };
+  const [detalleParam, setDetalleParam] = useState<DetalleParam | null>(null);
   const [numeroParaCargar, setNumeroParaCargar] = useState<string | null>(null);
   const onNumeroCargado = useCallback(() => setNumeroParaCargar(null), []);
 
@@ -39,12 +40,12 @@ export default function DashboardContent() {
     } catch { }
   }, []);
 
-  const openDetalleDesdeLista = (numero: number) => {
-    setDetalleNumero(String(numero));
+  const openDetalleDesdeLista = (numero: number | string, tipo?: string, empresa?: string) => {
+    setDetalleParam({ numero: String(numero), tipo, empresa });
   };
 
   const closeDetalle = () => {
-    setDetalleNumero(null);
+    setDetalleParam(null);
   };
 
   const tabs = [
@@ -171,8 +172,8 @@ export default function DashboardContent() {
         </AnimatePresence>
       </div>
 
-      {detalleNumero && (
-        <DetalleDocumentoModal numero={detalleNumero} onClose={closeDetalle} />
+      {detalleParam && (
+        <DetalleDocumentoModal param={detalleParam} onClose={closeDetalle} />
       )}
     </div>
   );

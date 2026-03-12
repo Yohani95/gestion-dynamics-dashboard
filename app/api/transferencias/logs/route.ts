@@ -8,13 +8,12 @@ export async function GET(request: Request) {
         const limiteStr = searchParams.get("limite") || "20";
         let limite = parseInt(limiteStr, 10);
 
-        // Validar límite para evitar consultas inmensas
         if (isNaN(limite) || limite < 1) limite = 20;
         if (limite > 500) limite = 500;
 
-        const pool = await getPool();
+        const instance = request.headers.get("x-instance") || "default";
+        const pool = await getPool(instance);
 
-        // Consulta con parámetros para prevenir inyección, enfocada en Traspasos
         const query = `
       SELECT TOP (@Limite)
          L.EstiloColor AS Traspaso

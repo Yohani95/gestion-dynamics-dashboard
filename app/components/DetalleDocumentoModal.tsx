@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import DetalleLineas from "./DetalleLineas";
+import { useInstance, fetchWithInstance, InstanceId } from "./InstanceContext";
 
 type Documento = {
   tipo: string;
@@ -28,14 +29,16 @@ type UltimoLog = { estado: number | null; fecha: string | null } | null;
 type ApiResponse = {
   numero: string;
   documento: Documento | null;
+  documentosPosibles?: Documento[];
   errores: ErrorItem[];
   ultimoLog?: UltimoLog;
   diagnostico: string;
   error?: string;
 };
 
+type DetalleParam = { numero: string | null; tipo?: string; empresa?: string };
 type Props = {
-  numero: string | null;
+  param: DetalleParam;
   onClose: () => void;
 };
 
@@ -55,12 +58,17 @@ const estadoLabel: Record<number, string> = {
   4: "Medio de pago listo",
 };
 
-function loadDocumento(num: string) {
-  return fetch(`/api/documento?numero=${encodeURIComponent(num)}`)
+function loadDocumento(param: DetalleParam, instance: InstanceId) {
+  if (!param.numero) return Promise.resolve(null);
+  let url = `/api/documento?numero=${encodeURIComponent(param.numero)}`;
+  if (param.tipo) url += `&tipo=${encodeURIComponent(param.tipo)}`;
+  if (param.empresa) url += `&empresa=${encodeURIComponent(param.empresa)}`;
+
+  return fetchWithInstance(url, {}, instance)
     .then((res) => res.json())
     .then((json: ApiResponse) => json)
     .catch(() => ({
-      numero: num,
+      numero: param.numero!,
       documento: null,
       errores: [],
       diagnostico: "Error al consultar el documento.",
@@ -68,7 +76,9 @@ function loadDocumento(num: string) {
     }));
 }
 
-export default function DetalleDocumentoModal({ numero, onClose }: Props) {
+export default function DetalleDocumentoModal({ param, onClose }: Props) {
+  const { instance } = useInstance();
+  const numero = param?.numero;
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [reprocesando, setReprocesando] = useState(false);
@@ -82,10 +92,10 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
     setLoading(true);
     setData(null);
     setReprocesoMsg(null);
-    loadDocumento(numero)
+    loadDocumento(param, instance)
       .then(setData)
       .finally(() => setLoading(false));
-  }, [numero]);
+  }, [param, instance, numero]);
 
   async function handleReprocesar() {
     if (!numero || !data?.documento || data.documento.estadoSII !== 2) return;
@@ -93,18 +103,31 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
     setReprocesoMsg(null);
     setAccionMsg(null);
     try {
-      const res = await fetch("/api/documento/reprocesar", {
+      const res = await fetchWithInstance("/api/documento/reprocesar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numero }),
-      });
+        body: JSON.stringify({
+          numero,
+          tipo: data.documento.tipo,
+          idDocumento: data.documento.idDocumento,
+          codEmpresa: data.documento.codEmpresa,
+          fecha: data.documento.fechaEmision,
+        }),
+      }, instance);
       const json = await res.json();
       setReprocesoMsg({
         ok: json.ok === true,
         text: json.mensaje ?? json.error ?? (res.ok ? "Reproceso ejecutado." : "Error al reprocesar."),
       });
       if (json.ok) {
-        const updated = await loadDocumento(numero);
+        const updated = await loadDocumento(
+          {
+            numero: String(data.documento.numero),
+            tipo: data.documento.tipo,
+            empresa: data.documento.codEmpresa,
+          },
+          instance
+        );
         setData(updated);
       }
     } catch (err) {
@@ -119,18 +142,30 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
     setLocalizando(true);
     setAccionMsg(null);
     try {
-      const res = await fetch("/api/documento/localizar", {
+      const res = await fetchWithInstance("/api/documento/localizar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numero }),
-      });
+        body: JSON.stringify({
+          numero,
+          tipo: data.documento.tipo,
+          codEmpresa: data.documento.codEmpresa,
+          fecha: data.documento.fechaEmision,
+        }),
+      }, instance);
       const json = await res.json();
       setAccionMsg({
         ok: json.ok === true,
         text: json.mensaje ?? json.error ?? (res.ok ? "Localización ejecutada." : "Error al localizar."),
       });
       if (json.ok) {
-        const updated = await loadDocumento(numero);
+        const updated = await loadDocumento(
+          {
+            numero: String(data.documento.numero),
+            tipo: data.documento.tipo,
+            empresa: data.documento.codEmpresa,
+          },
+          instance
+        );
         setData(updated);
       }
     } catch (err) {
@@ -145,18 +180,31 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
     setRegistrando(true);
     setAccionMsg(null);
     try {
-      const res = await fetch("/api/documento/registrar", {
+      const res = await fetchWithInstance("/api/documento/registrar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numero }),
-      });
+        body: JSON.stringify({
+          numero,
+          tipo: data.documento.tipo,
+          codEmpresa: data.documento.codEmpresa,
+          fecha: data.documento.fechaEmision,
+          documento: String(data.documento.numero),
+        }),
+      }, instance);
       const json = await res.json();
       setAccionMsg({
         ok: json.ok === true,
         text: json.mensaje ?? json.error ?? (res.ok ? "Registro ejecutado." : "Error al registrar."),
       });
       if (json.ok) {
-        const updated = await loadDocumento(numero);
+        const updated = await loadDocumento(
+          {
+            numero: String(data.documento.numero),
+            tipo: data.documento.tipo,
+            empresa: data.documento.codEmpresa,
+          },
+          instance
+        );
         setData(updated);
       }
     } catch (err) {
@@ -204,8 +252,43 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
                 <p className="mt-1 text-sm text-amber-900">{data.diagnostico}</p>
               </div>
 
-              {data.documento && (
-                <div className="mb-4 space-y-3">
+              {data?.documentosPosibles && data.documentosPosibles.length > 1 && !data.documento && !loading && (
+                <div className="mb-6 p-5 border border-amber-200 bg-amber-50 rounded-xl shadow-sm">
+                  <h3 className="text-amber-900 font-bold mb-2 text-lg">Se encontraron múltiples documentos</h3>
+                  <p className="text-amber-800 text-sm mb-4">
+                    Existen {data.documentosPosibles.length} documentos con el número {numero} en esta instancia.
+                    Por favor, selecciona el correcto:
+                  </p>
+                  <div className="space-y-2">
+                    {data.documentosPosibles.map((doc, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setLoading(true);
+                          loadDocumento({ numero: String(doc.numero), tipo: doc.tipo, empresa: doc.codEmpresa }, instance)
+                            .then(setData)
+                            .finally(() => setLoading(false));
+                        }}
+                        className="w-full rounded-xl border border-white/50 bg-white/60 p-3 text-left hover:bg-white hover:shadow-md hover:border-amber-300 transition-all flex justify-between items-center group"
+                      >
+                        <div>
+                          <div className="font-bold text-amber-900 flex items-center gap-2">
+                            <span className="px-2 py-0.5 bg-amber-200 text-amber-900 rounded text-[10px] uppercase tracking-wider">{doc.tipo}</span>
+                            Folio {doc.numero}
+                          </div>
+                          <div className="text-xs text-amber-700 mt-1">
+                            Empresa ID: <span className="font-mono">{doc.codEmpresa}</span> | Emisión: {doc.fechaEmision.split("T")[0]}
+                          </div>
+                        </div>
+                        <span className="text-amber-500 font-semibold text-xs group-hover:translate-x-1 transition-transform">Ver Detalle &rarr;</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {data?.documento && !loading && (
+                <div className="space-y-6">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="flex items-center gap-2">
                       <span className="inline-flex items-center rounded-md bg-slate-900 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-white">
@@ -236,7 +319,7 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
                         Dynamics:{" "}
                         {data.documento.estadoEnvio != null
                           ? estadoLabel[data.documento.estadoEnvio] ??
-                            data.documento.estadoEnvio
+                          data.documento.estadoEnvio
                           : "—"}
                       </span>
                     </div>
@@ -304,11 +387,10 @@ export default function DetalleDocumentoModal({ numero, onClose }: Props) {
                   </div>
                   {(reprocesoMsg || accionMsg) && (
                     <div
-                      className={`mt-2 rounded-lg border p-2 text-sm font-medium ${
-                        (reprocesoMsg ?? accionMsg)?.ok
-                          ? "border-emerald-300 bg-emerald-50 text-emerald-900"
-                          : "border-rose-300 bg-rose-50 text-rose-900"
-                      }`}
+                      className={`mt-2 rounded-lg border p-2 text-sm font-medium ${(reprocesoMsg ?? accionMsg)?.ok
+                        ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                        : "border-rose-300 bg-rose-50 text-rose-900"
+                        }`}
                     >
                       {(reprocesoMsg ?? accionMsg)?.text}
                     </div>

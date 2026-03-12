@@ -13,7 +13,8 @@ export async function POST(request: Request) {
 
         const nuevoEstado = accion === "REINTENTAR" ? "PENDIENTE" : "TERMINADO";
 
-        const pool = await getPool();
+        const instance = request.headers.get("x-instance") || "default";
+        const pool = await getPool(instance);
         const result = await pool.request()
             .input("Id", sql.UniqueIdentifier, id)
             .input("Estado", sql.VarChar(20), nuevoEstado)

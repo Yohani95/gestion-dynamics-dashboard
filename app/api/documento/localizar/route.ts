@@ -6,6 +6,7 @@ export const dynamic = "force-dynamic";
 type DocInfo = { Cod_Empresa: string; Fecha_Emision: string };
 
 export async function POST(request: NextRequest) {
+  const instance = request.headers.get("x-instance") || "default";
   let body: { numero?: string; codEmpresa?: string; fecha?: string };
   try {
     body = await request.json();
@@ -24,19 +25,23 @@ export async function POST(request: NextRequest) {
     fecha = body.fecha;
   } else if (body.numero?.trim()) {
     const sqlDoc = `
-      SELECT TOP 1 Cab.Cod_Empresa, CONVERT(NVARCHAR(10), Cab.Fecha_Emision, 120) AS Fecha_Emision
-      FROM Ges_BlvCabecera Cab WITH (NOLOCK)
-      WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
-      UNION ALL
-      SELECT Cab.Cod_Empresa, CONVERT(NVARCHAR(10), Cab.Fecha_Emision, 120)
-      FROM Ges_FcvCabecera Cab WITH (NOLOCK)
-      WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
-      UNION ALL
-      SELECT Cab.Cod_Empresa, CONVERT(NVARCHAR(10), Cab.Fecha_Emision, 120)
-      FROM Ges_NcvCabecera Cab WITH (NOLOCK)
-      WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
+      SELECT TOP 1 Cod_Empresa, CONVERT(NVARCHAR(10), Fecha_Emision, 120) AS Fecha_Emision
+      FROM (
+        SELECT Cab.Cod_Empresa, Cab.Fecha_Emision
+        FROM Ges_BlvCabecera Cab WITH (NOLOCK)
+        WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
+        UNION ALL
+        SELECT Cab.Cod_Empresa, Cab.Fecha_Emision
+        FROM Ges_FcvCabecera Cab WITH (NOLOCK)
+        WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
+        UNION ALL
+        SELECT Cab.Cod_Empresa, Cab.Fecha_Emision
+        FROM Ges_NcvCabecera Cab WITH (NOLOCK)
+        WHERE Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) = @numero
+      ) U
+      ORDER BY Fecha_Emision DESC, Cod_Empresa DESC
     `;
-    const rows = await query<DocInfo[]>(sqlDoc, { numero: body.numero.trim() });
+    const rows = await query<DocInfo[]>(sqlDoc, { numero: body.numero.trim() }, instance);
     const doc = rows?.[0];
     if (!doc) {
       return NextResponse.json(
@@ -54,7 +59,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const pool = await getPool();
+    const pool = await getPool(instance);
     const req = pool.request();
     req.input("Cod_Empresa", sql.UniqueIdentifier, codEmpresa);
     req.input("Fecha", sql.Date, new Date(fecha));
