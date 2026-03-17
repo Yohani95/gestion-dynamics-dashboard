@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import DetalleLineas from "./DetalleLineas";
 import { useInstance, fetchWithInstance } from "./InstanceContext";
+import { useAdminSession } from "./AdminSessionContext";
 import { formatDateLocal } from "@/lib/formatUtils";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
 
@@ -93,6 +94,7 @@ type DocumentoLookupFilters = {
 
 export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }: BusquedaDocumentoProps) {
   const { instance } = useInstance();
+  const { isAdmin } = useAdminSession();
   const [numero, setNumero] = useState("");
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -702,56 +704,61 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
               </div>
 
               {/* Acciones de Reproceso Premium */}
-              <div className="mt-10 p-6 bg-zinc-900 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
-                <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+              {isAdmin ? (
+                <div className="mt-10 p-6 bg-zinc-900 rounded-[2.5rem] shadow-2xl relative overflow-hidden group">
+                  <div className="absolute inset-0 bg-gradient-to-r from-indigo-500/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
 
-                <div className="flex items-center gap-5 relative z-10 mb-6 border-b border-white/5 pb-4">
-                  <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-sm border border-white/5 shadow-inner">
-                    <RefreshCw className={`w-6 h-6 text-white ${reprocesando || enviandoSII ? "animate-spin" : ""}`} />
+                  <div className="flex items-center gap-5 relative z-10 mb-6 border-b border-white/5 pb-4">
+                    <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center backdrop-blur-sm border border-white/5 shadow-inner">
+                      <RefreshCw className={`w-6 h-6 text-white ${reprocesando || enviandoSII ? "animate-spin" : ""}`} />
+                    </div>
+                    <div>
+                      <p className="text-white font-bold text-base">Acciones Operativas</p>
+                      <p className="text-white/40 text-[11px]">Gestión manual del flujo y sincronización del documento.</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-white font-bold text-base">Acciones Operativas</p>
-                    <p className="text-white/40 text-[11px]">Gestión manual del flujo y sincronización del documento.</p>
+
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-10">
+                    <button
+                      type="button"
+                      onClick={handleConsultarEstadoFolder}
+                      disabled={enviandoSII || !data.documento}
+                      className="h-11 px-4 bg-amber-600 text-white text-[12px] font-bold rounded-xl hover:bg-amber-500 transition-all shadow-lg active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
+                    >
+                      <Search className={`w-3.5 h-3.5 ${enviandoSII ? "animate-spin" : ""}`} />
+                      {enviandoSII ? "Espere..." : "Folder"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleReprocesar}
+                      disabled={reprocesando || data.documento.estadoSII !== 2}
+                      className="h-11 px-4 bg-indigo-600 text-white text-[12px] font-bold rounded-xl hover:bg-indigo-500 transition-all shadow-lg active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
+                    >
+                      {reprocesando ? "..." : "Reprocesar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleLocalizar}
+                      disabled={localizando || !data.documento}
+                      className="h-11 px-4 bg-white/10 text-white text-[12px] font-bold rounded-xl hover:bg-white/20 transition-all border border-white/5 active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
+                    >
+                      {localizando ? "..." : "Localizar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleRegistrar}
+                      disabled={registrando || !data.documento}
+                      className="h-11 px-4 bg-emerald-600 text-white text-[12px] font-bold rounded-xl hover:bg-emerald-500 transition-all shadow-lg active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
+                    >
+                      {registrando ? "..." : "Registrar"}
+                    </button>
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 relative z-10">
-                  <button
-                    type="button"
-                    onClick={handleConsultarEstadoFolder}
-                    disabled={enviandoSII || !data.documento}
-                    className="h-11 px-4 bg-amber-600 text-white text-[12px] font-bold rounded-xl hover:bg-amber-500 transition-all shadow-lg active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
-                  >
-                    <Search className={`w-3.5 h-3.5 ${enviandoSII ? "animate-spin" : ""}`} />
-                    {enviandoSII ? "Espere..." : "Folder"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleReprocesar}
-                    disabled={reprocesando || data.documento.estadoSII !== 2}
-                    className="h-11 px-4 bg-indigo-600 text-white text-[12px] font-bold rounded-xl hover:bg-indigo-500 transition-all shadow-lg active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
-                  >
-                    {reprocesando ? "..." : "Reprocesar"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleLocalizar}
-                    disabled={localizando || !data.documento}
-                    className="h-11 px-4 bg-white/10 text-white text-[12px] font-bold rounded-xl hover:bg-white/20 transition-all border border-white/5 active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
-                  >
-                    {localizando ? "..." : "Localizar"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRegistrar}
-                    disabled={registrando || !data.documento}
-                    className="h-11 px-4 bg-emerald-600 text-white text-[12px] font-bold rounded-xl hover:bg-emerald-500 transition-all shadow-lg active:scale-95 disabled:opacity-20 flex items-center justify-center gap-2"
-                  >
-                    {registrando ? "..." : "Registrar"}
-                  </button>
+              ) : (
+                <div className="mt-10 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                  Acciones restringidas a administrador.
                 </div>
-
-              </div>
+              )}
 
               {(reprocesoMsg || accionMsg) && (
                 <motion.div

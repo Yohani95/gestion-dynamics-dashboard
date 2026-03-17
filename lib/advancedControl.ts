@@ -1,7 +1,8 @@
 import sql from "mssql";
 import { resolveInstanceId } from "@/lib/instances";
+import { getPool } from "@/lib/db";
 
-export type AdvancedTargetType = "JOB" | "SP";
+export type AdvancedTargetType = "JOB" | "SP" | "VENTA" | "TRASPASO";
 export type AdvancedResult = "SUCCESS" | "FAILED" | "DENIED";
 
 export function resolveInstanceKey(instanceHeader?: string | null) {
@@ -156,4 +157,24 @@ export async function insertAdvancedAudit(
     `);
 
   return Number(insertResult.recordset[0]?.Id ?? 0);
+}
+
+export async function insertAdvancedAuditSafe(payload: {
+  instance: string;
+  userApp?: string | null;
+  action: string;
+  targetType: AdvancedTargetType;
+  targetName: string;
+  result: AdvancedResult;
+  detail?: string | null;
+}) {
+  try {
+    const pool = await getPool(payload.instance);
+    await ensureAdvancedTables(pool);
+    return await insertAdvancedAudit(pool, payload);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    console.error("[advanced-audit] no fue posible registrar auditoria:", err.message);
+    return 0;
+  }
 }

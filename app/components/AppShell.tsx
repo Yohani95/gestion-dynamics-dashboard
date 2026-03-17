@@ -20,7 +20,10 @@ import {
   fetchWithInstance,
   useInstance,
 } from "./InstanceContext";
+import { AdminSessionProvider, useAdminSession } from "./AdminSessionContext";
 import InstanceSelector from "./InstanceSelector";
+import AdminSessionControl from "./AdminSessionControl";
+import JobBrowserNotifications from "./JobBrowserNotifications";
 import PwaInstallPrompt from "./PwaInstallPrompt";
 
 type NavItem = {
@@ -62,6 +65,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   const SidebarContent = ({ currentPath }: { currentPath: string }) => {
     const { instance, isJobsOnly, supportsTransferencias } = useInstance();
+    const { authenticated, username, role, loading: sessionLoading } = useAdminSession();
     const isNavActiveLocal = (href: string) => {
       if (href === "/") return currentPath === "/";
       return currentPath === href || currentPath.startsWith(`${href}/`);
@@ -131,6 +135,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       ? advancedNavItems.filter((item) => item.href === "/advanced/jobs")
       : advancedNavItems;
     const advancedRootHref = visibleAdvancedNavItems[0]?.href ?? "/advanced/jobs";
+
+    const normalizedUsername = username?.trim() ?? "";
+    const displayName =
+      authenticated && normalizedUsername.length > 0 ? normalizedUsername : "Invitado";
+    const displayRole = authenticated
+      ? role === "ADMIN"
+        ? "Administrador"
+        : (role ?? "Usuario")
+      : (sessionLoading ? "Verificando sesion..." : "Sin sesion");
+
+    const displayInitials = (() => {
+      const words = displayName.split(/\s+/).filter(Boolean);
+      if (words.length === 0) return "IN";
+      if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+      return `${words[0][0]}${words[words.length - 1][0]}`.toUpperCase();
+    })();
 
     return (
       <div className="flex h-full flex-col bg-zinc-950 text-white">
@@ -362,8 +382,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               isDesktopCollapsed ? "justify-center" : ""
             } flex items-center gap-3`}
           >
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 text-xs font-bold ring-2 ring-zinc-800">
-              YE
+            <div
+              className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-2 ring-zinc-800 ${
+                authenticated
+                  ? "bg-gradient-to-tr from-zinc-700 to-zinc-600"
+                  : "bg-gradient-to-tr from-zinc-600 to-zinc-500"
+              }`}
+            >
+              {displayInitials}
             </div>
             <AnimatePresence mode="wait">
               {!isDesktopCollapsed && (
@@ -373,8 +399,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   exit={{ opacity: 0, width: 0 }}
                   className="flex flex-col overflow-hidden whitespace-nowrap"
                 >
-                  <span className="text-sm font-medium text-zinc-200">Yohani Espinoza</span>
-                  <span className="text-xs text-zinc-500">Administrador</span>
+                  <span className="truncate text-sm font-medium text-zinc-200">{displayName}</span>
+                  <span className="truncate text-xs text-zinc-500">{displayRole}</span>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -386,7 +412,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <InstanceProvider>
-      <div className="min-h-screen bg-zinc-50 font-sans selection:bg-zinc-900 selection:text-white">
+      <AdminSessionProvider>
+        <div className="min-h-screen bg-zinc-50 font-sans selection:bg-zinc-900 selection:text-white">
         <AnimatePresence>
           {isMobileOpen && (
             <>
@@ -427,12 +454,12 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </motion.div>
 
-        <motion.div
-          animate={{ paddingLeft: isDesktopCollapsed ? "5rem" : "18rem" }}
-          transition={{ type: "spring", bounce: 0, duration: 0.4 }}
-          className="flex w-full flex-1 flex-col transition-all lg:min-h-screen"
+        <div
+          className={`flex w-full flex-1 flex-col transition-all duration-300 lg:min-h-screen ${
+            isDesktopCollapsed ? "lg:pl-20" : "lg:pl-72"
+          }`}
         >
-          <div className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-x-4 border-b border-zinc-200/50 bg-white/80 px-4 shadow-sm backdrop-blur-md sm:gap-x-6 sm:px-6 lg:px-8">
+          <div className="sticky top-0 z-30 flex min-h-16 shrink-0 items-center gap-x-3 border-b border-zinc-200/50 bg-white/90 px-3 py-2 shadow-sm backdrop-blur-md sm:gap-x-4 sm:px-6 lg:px-8">
             <button
               type="button"
               className="-m-2.5 rounded-lg p-2.5 text-zinc-700 transition-colors hover:bg-zinc-100 lg:hidden"
@@ -444,9 +471,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
             <div className="h-6 w-px bg-zinc-200 lg:hidden" aria-hidden="true" />
 
-            <div className="flex flex-1 items-center gap-x-4 self-stretch lg:gap-x-6">
-              <h1 className="text-sm font-semibold tracking-tight text-zinc-800">{pageTitle}</h1>
-              <div className="ml-auto flex items-center gap-x-4 lg:gap-x-6">
+            <div className="flex flex-1 flex-col gap-2 self-stretch sm:flex-row sm:items-center sm:gap-x-4 lg:gap-x-6">
+              <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-800">{pageTitle}</h1>
+              <div className="ml-0 flex flex-wrap items-center gap-2 sm:ml-auto sm:gap-x-4 lg:gap-x-6">
+                <AdminSessionControl />
+                <JobBrowserNotifications />
                 <InstanceSelector />
               </div>
             </div>
@@ -457,10 +486,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
               {children}
             </div>
           </main>
-        </motion.div>
+        </div>
 
         <PwaInstallPrompt />
-      </div>
+        </div>
+      </AdminSessionProvider>
     </InstanceProvider>
   );
 }

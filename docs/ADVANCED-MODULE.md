@@ -96,8 +96,48 @@ Parametros del script:
 - `POST /api/advanced/jobs/action` (`START`, `STOP`, `RETRY`, `ENABLE`, `DISABLE`)
 - `GET /api/advanced/sps/running`
 - `GET /api/advanced/alerts/summary`
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/session`
 
 Todos respetan la cabecera `x-instance` (`default`, `andpac`, `tecnobuy`, `dwhdev2`).
+
+## Seguridad de acciones (V1)
+
+- La visualizacion se mantiene publica.
+- Las acciones mutables requieren sesion de administrador:
+  - `POST /api/advanced/jobs/action`
+  - `POST /api/transferencias/estados/accion`
+  - `POST /api/documento/reprocesar`
+  - `POST /api/documento/localizar`
+  - `POST /api/documento/registrar`
+  - `POST /api/documento/enviar-sii`
+- Respuestas esperadas:
+  - `401` cuando no existe sesion admin.
+  - `403` cuando el usuario no tiene rol/permiso.
+  - `403` adicional en Jobs cuando whitelist no permite la accion.
+- Todas las acciones quedan auditadas en `dbo.Ges_AdvancedAudit` (exito, denegado o fallo), incluyendo usuario cuando existe sesion.
+
+### Variables de entorno para auth
+
+```env
+AUTH_PROVIDER=local
+AUTH_SESSION_SECRET=CAMBIAR_ESTE_SECRETO_LARGO_Y_UNICO
+ADMIN_USERS_JSON=[{"username":"admin1","passwordHash":"$2b$12$...","role":"ADMIN"}]
+```
+
+Generar hash bcrypt:
+
+```bash
+node -e "const b=require('bcryptjs'); b.hash('TuClaveSegura123!',12).then(console.log)"
+```
+
+Compatibilidad futura con Windows/IIS (no activa en V1):
+
+```env
+# AUTH_PROVIDER=windows
+# WINDOWS_ADMIN_USERS=DOMINIO\\usuario1,DOMINIO\\usuario2,DOMINIO\\usuario3
+```
 
 ## Instancias y alcance
 
@@ -123,6 +163,15 @@ Variables esperadas en `.env.local`:
   - Acciones habilitadas por whitelist (`Iniciar`, `Detener`, `Reintentar`, `Habilitar`, `Deshabilitar`).
   - Pestaña `Ayuda` con guia operativa.
 - `Avanzados > SP Activos` mantiene monitoreo solo lectura.
+
+### Notificaciones navegador
+
+- El header principal tiene boton de campana para activar/desactivar alertas del browser.
+- Requiere permiso de notificaciones del navegador.
+- La app notifica cuando suben los `failedJobs24h` o `longRunningJobs`.
+- Al hacer click en la notificacion, abre `/advanced/jobs`.
+- El boton `Probar alerta` queda visible en desarrollo y en produccion solo para usuarios admin autenticados.
+- Se muestra estado operativo en header (permiso del navegador + estado de ultimo poll).
 
 ## Resumen en Inicio
 

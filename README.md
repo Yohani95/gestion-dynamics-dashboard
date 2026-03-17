@@ -1,15 +1,15 @@
-# Diagnóstico Dynamics · TheLineGroup
+# Diagnostico Dynamics - TheLineGroup
 
-Landing de consulta de documentos (BLE, FCV, NCV) para ver estado en SII, envío a Dynamics 365 y errores registrados.
+Landing de consulta de documentos (BLE, FCV, NCV) para revisar estado en SII, envio a Dynamics 365 y errores registrados.
 
 ## Requisitos
 
 - Node.js 18+
-- SQL Server (Gestion) accesible con las credenciales configuradas.
+- SQL Server (Gestion) accesible con credenciales configuradas.
 
-## Configuración
+## Configuracion
 
-1. Copia el archivo de ejemplo y rellena las credenciales de SQL Server:
+1. Copia el archivo de ejemplo y completa credenciales SQL:
 
    ```bash
    cp .env.example .env.local
@@ -24,7 +24,28 @@ Landing de consulta de documentos (BLE, FCV, NCV) para ver estado en SII, envío
    SQL_PASSWORD=tu_password
    ```
 
-   No subas `.env.local` a control de versiones.
+3. Configura seguridad de acciones admin (V1):
+
+   ```env
+   AUTH_PROVIDER=local
+   AUTH_SESSION_SECRET=un_secreto_largo_y_unico
+   ADMIN_USERS_JSON=[{"username":"admin1","passwordHash":"$2b$12$...","role":"ADMIN"}]
+   ```
+
+   Para generar hash bcrypt:
+
+   ```bash
+   node -e "const b=require('bcryptjs'); b.hash('TuClaveSegura123!',12).then(console.log)"
+   ```
+
+   Compatibilidad futura con Windows/IIS:
+
+   ```env
+   # AUTH_PROVIDER=windows
+   # WINDOWS_ADMIN_USERS=DOMINIO\\usuario1,DOMINIO\\usuario2
+   ```
+
+No subas `.env.local` al control de versiones.
 
 ## Desarrollo
 
@@ -33,9 +54,9 @@ npm install
 npm run dev
 ```
 
-Abre [http://localhost:3000](http://localhost:3000), ingresa un número de documento y revisa el diagnóstico (estado SII, estado Dynamics, errores).
+Abre [http://localhost:3000](http://localhost:3000), ingresa un numero de documento y revisa el diagnostico.
 
-## Producción
+## Produccion
 
 ```bash
 npm run build
@@ -44,12 +65,13 @@ npm start
 
 ## Modulo Avanzados
 
-Se agrego navegacion Avanzados con:
-- Control de SQL Agent jobs (/advanced/jobs).
-- Monitoreo de SP activos (/advanced/sps).
-- Pestaña de ayuda en Jobs (flujo operativo y buenas practicas).
+Incluye:
 
-En el dashboard principal, el bloque de Jobs queda separado al final como
-"Resumen Jobs (Avanzados)" para no saturar las cards operativas principales.
+- Control de SQL Agent Jobs (`/advanced/jobs`).
+- Monitoreo de SP activos (`/advanced/sps`).
+- Pestaña de ayuda en Jobs.
 
-Documentacion de configuracion y whitelist: docs/ADVANCED-MODULE.md.
+En el dashboard principal, el bloque de Jobs se muestra en una seccion aparte para no saturar las cards operativas.
+
+Documentacion detallada: `docs/ADVANCED-MODULE.md`.
+

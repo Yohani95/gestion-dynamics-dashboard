@@ -33,6 +33,7 @@ export type AdvancedJobItem = {
   currentRunSec: number | null;
   lastRunAt: string | null;
   lastRunOutcome: AdvancedLastRunOutcome;
+  lastRunMessage: string | null;
   lastDurationSec: number | null;
   nextRunAt: string | null;
   canStart: boolean;
@@ -65,6 +66,7 @@ type SqlJobRow = {
   CurrentRunSeconds: number | null;
   LastRunAt: string | null;
   LastRunStatus: number | null;
+  LastRunMessage: string | null;
   LastRunSeconds: number | null;
   NextRunAt: string | null;
 };
@@ -80,6 +82,12 @@ function rowPriority(row: SqlJobRow) {
 function normalizeSqlDateTime(value: string | null) {
   if (!value) return null;
   return value.trim();
+}
+
+function normalizeSqlMessage(value: string | null) {
+  if (!value) return null;
+  const normalized = value.replace(/\s+/g, " ").trim();
+  return normalized.length > 0 ? normalized : null;
 }
 
 function getLastRunOutcome(status: number | null): AdvancedLastRunOutcome {
@@ -206,11 +214,17 @@ export async function getAdvancedJobsSnapshot(options: {
     LastRun AS (
       SELECT
         h.job_id,
+        h.instance_id AS LastRunInstanceId,
+        LAG(h.instance_id) OVER (
+          PARTITION BY h.job_id
+          ORDER BY h.instance_id
+        ) AS PrevRunSummaryInstanceId,
         CASE
           WHEN h.run_date = 0 THEN NULL
           ELSE msdb.dbo.agent_datetime(h.run_date, h.run_time)
         END AS LastRunAt,
         h.run_status AS LastRunStatus,
+        LEFT(h.message, 800) AS LastRunMessage,
         ((h.run_duration / 10000) * 3600)
           + (((h.run_duration % 10000) / 100) * 60)
           + (h.run_duration % 100) AS LastRunSeconds,
@@ -272,12 +286,52 @@ export async function getAdvancedJobsSnapshot(options: {
       END AS CurrentRunSeconds,
       CONVERT(VARCHAR(19), lr.LastRunAt, 120) AS LastRunAt,
       lr.LastRunStatus,
+      CASE
+        WHEN lr.LastRunStatus = 0 THEN LEFT(
+          COALESCE(
+            CASE
+              WHEN lse.FailedStepMessage IS NOT NULL THEN CONCAT(
+                'Paso ',
+                CONVERT(VARCHAR(10), lse.FailedStepId),
+                CASE
+                  WHEN NULLIF(LTRIM(RTRIM(lse.FailedStepName)), '') IS NOT NULL
+                    THEN CONCAT(' (', lse.FailedStepName, ')')
+                  ELSE ''
+                END,
+                ': ',
+                lse.FailedStepMessage
+              )
+              ELSE NULL
+            END,
+            lr.LastRunMessage
+          ),
+          800
+        )
+        ELSE LEFT(lr.LastRunMessage, 800)
+      END AS LastRunMessage,
       lr.LastRunSeconds,
       CONVERT(VARCHAR(19), nr.NextRunAt, 120) AS NextRunAt
     FROM msdb.dbo.sysjobs j
     LEFT JOIN CurrentActivity ca ON ca.job_id = j.job_id
     LEFT JOIN LastRun lr ON lr.job_id = j.job_id AND lr.rn = 1
     LEFT JOIN NextRun nr ON nr.job_id = j.job_id
+    OUTER APPLY (
+      SELECT TOP 1
+        hs.step_id AS FailedStepId,
+        hs.step_name AS FailedStepName,
+        hs.message AS FailedStepMessage
+      FROM msdb.dbo.sysjobhistory hs
+      WHERE hs.job_id = j.job_id
+        AND hs.step_id > 0
+        AND hs.run_status = 0
+        AND lr.LastRunInstanceId IS NOT NULL
+        AND hs.instance_id <= lr.LastRunInstanceId
+        AND (
+          lr.PrevRunSummaryInstanceId IS NULL
+          OR hs.instance_id > lr.PrevRunSummaryInstanceId
+        )
+      ORDER BY hs.instance_id DESC
+    ) lse
     LEFT JOIN RunningSessionJobs rs
       ON rs.JobIdHex = UPPER(
         sys.fn_varbintohexstr(CAST(j.job_id AS VARBINARY(16)))
@@ -329,6 +383,7 @@ export async function getAdvancedJobsSnapshot(options: {
       currentRunSec,
       lastRunAt: normalizeSqlDateTime(row.LastRunAt),
       lastRunOutcome,
+      lastRunMessage: normalizeSqlMessage(row.LastRunMessage),
       lastDurationSec: row.LastRunSeconds ?? null,
       nextRunAt: normalizeSqlDateTime(row.NextRunAt),
       canStart: permissions.canStart,

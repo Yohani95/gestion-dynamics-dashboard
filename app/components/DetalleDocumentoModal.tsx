@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import DetalleLineas from "./DetalleLineas";
 import { useInstance, fetchWithInstance, InstanceId } from "./InstanceContext";
+import { useAdminSession } from "./AdminSessionContext";
 
 type Documento = {
   tipo: string;
@@ -78,6 +79,7 @@ function loadDocumento(param: DetalleParam, instance: InstanceId) {
 
 export default function DetalleDocumentoModal({ param, onClose }: Props) {
   const { instance } = useInstance();
+  const { isAdmin } = useAdminSession();
   const numero = param?.numero;
   const [data, setData] = useState<ApiResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -356,35 +358,41 @@ export default function DetalleDocumentoModal({ param, onClose }: Props) {
                     )}
                   </dl>
 
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={handleReprocesar}
-                      disabled={reprocesando || data.documento.estadoSII !== 2}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 disabled:pointer-events-none"
-                    >
-                      {reprocesando ? "…" : "Reprocesar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLocalizar}
-                      disabled={localizando || !data.documento}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      {localizando ? "Localizando…" : "Localizar"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleRegistrar}
-                      disabled={registrando || !data.documento}
-                      className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                    >
-                      {registrando ? "Registrando…" : "Registrar"}
-                    </button>
-                    {data.documento.estadoSII !== 2 && (
-                      <span className="text-xs text-slate-500">Reprocesar solo si está timbrado (SII).</span>
-                    )}
-                  </div>
+                  {isAdmin ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleReprocesar}
+                        disabled={reprocesando || data.documento.estadoSII !== 2}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:pointer-events-none disabled:opacity-50"
+                      >
+                        {reprocesando ? "…" : "Reprocesar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleLocalizar}
+                        disabled={localizando || !data.documento}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {localizando ? "Localizando…" : "Localizar"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleRegistrar}
+                        disabled={registrando || !data.documento}
+                        className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-800 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {registrando ? "Registrando…" : "Registrar"}
+                      </button>
+                      {data.documento.estadoSII !== 2 && (
+                        <span className="text-xs text-slate-500">Reprocesar solo si está timbrado (SII).</span>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      Acciones restringidas a administrador.
+                    </div>
+                  )}
                   {(reprocesoMsg || accionMsg) && (
                     <div
                       className={`mt-2 rounded-lg border p-2 text-sm font-medium ${(reprocesoMsg ?? accionMsg)?.ok

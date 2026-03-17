@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getPool, query, sql } from "@/lib/db";
+import { getAdminSessionFromRequest } from "@/lib/auth";
+import { insertAdvancedAuditSafe } from "@/lib/advancedControl";
+import { resolveInstanceId } from "@/lib/instances";
 
 export const dynamic = "force-dynamic";
 
@@ -11,21 +14,63 @@ type DocInfo = {
 };
 
 export async function POST(request: NextRequest) {
-  const instance = request.headers.get("x-instance") || "default";
+  const instance = resolveInstanceId(request.headers.get("x-instance"));
+  const actionName = "VENTA_REPROCESAR";
+
   let body: { numero?: string; idDocumento?: string; codEmpresa?: string; fecha?: string };
   try {
     body = await request.json();
   } catch {
     return NextResponse.json(
-      { error: "Cuerpo JSON inválido. Esperado: { numero } o { idDocumento, codEmpresa, fecha }." },
-      { status: 400 }
+      { error: "JSON invalido. Esperado: { numero } o { idDocumento, codEmpresa, fecha }." },
+      { status: 400 },
+    );
+  }
+
+  const authTargetName = body.numero?.trim() || body.idDocumento?.trim() || "UNKNOWN";
+  const adminSession = getAdminSessionFromRequest(request);
+  if (!adminSession) {
+    const auditId = await insertAdvancedAuditSafe({
+      instance,
+      userApp: null,
+      action: actionName,
+      targetType: "VENTA",
+      targetName: authTargetName,
+      result: "DENIED",
+      detail: "Accion denegada: sesion de administrador requerida.",
+    });
+
+    return NextResponse.json(
+      { ok: false, error: "Sesion de administrador requerida.", auditId },
+      { status: 401 },
+    );
+  }
+
+  if (adminSession.role !== "ADMIN") {
+    const auditId = await insertAdvancedAuditSafe({
+      instance,
+      userApp: adminSession.username,
+      action: actionName,
+      targetType: "VENTA",
+      targetName: authTargetName,
+      result: "DENIED",
+      detail: "Accion denegada: rol sin privilegios de administrador.",
+    });
+
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "El usuario no tiene permisos para ejecutar acciones.",
+        auditId,
+      },
+      { status: 403 },
     );
   }
 
   const numero = body.numero?.trim();
-  let idDocumento: string;
-  let codEmpresa: string;
-  let fecha: string;
+  let idDocumento = "";
+  let codEmpresa = "";
+  let fecha = "";
 
   if (body.idDocumento && body.codEmpresa && body.fecha) {
     idDocumento = body.idDocumento;
@@ -48,21 +93,33 @@ export async function POST(request: NextRequest) {
       ) U
       ORDER BY Fecha_Emision DESC, Tipo ASC, Id_Documento DESC
     `;
+
     const rows = await query<DocInfo[]>(sqlDoc, { numero }, instance);
     const doc = rows?.[0];
     if (!doc) {
+      const auditId = await insertAdvancedAuditSafe({
+        instance,
+        userApp: adminSession.username,
+        action: actionName,
+        targetType: "VENTA",
+        targetName: numero,
+        result: "FAILED",
+        detail: "Documento no encontrado para reproceso.",
+      });
+
       return NextResponse.json(
-        { error: "Documento no encontrado.", numero },
-        { status: 404 }
+        { error: "Documento no encontrado.", numero, auditId },
+        { status: 404 },
       );
     }
+
     idDocumento = doc.Id_Documento;
     codEmpresa = doc.Cod_Empresa;
     fecha = doc.Fecha_Emision;
   } else {
     return NextResponse.json(
       { error: "Indica numero o (idDocumento, codEmpresa, fecha)." },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -76,22 +133,49 @@ export async function POST(request: NextRequest) {
     req.input("Id_Documento", sql.UniqueIdentifier, idDocumento);
     req.output("Status", sql.Int);
 
-    const result = await req.execute("dbo.Ges_EnviaVenta_Dyn_optimizado") as { output?: { Status?: number }; returnValue?: number };
+    const result = (await req.execute("dbo.Ges_EnviaVenta_Dyn_optimizado")) as {
+      output?: { Status?: number };
+      returnValue?: number;
+    };
+
     const status = result.output?.Status ?? result.returnValue ?? -1;
+    const ok = status === 1;
+    const auditId = await insertAdvancedAuditSafe({
+      instance,
+      userApp: adminSession.username,
+      action: actionName,
+      targetType: "VENTA",
+      targetName: idDocumento,
+      result: ok ? "SUCCESS" : "FAILED",
+      detail: ok
+        ? "Reproceso ejecutado correctamente."
+        : `Procedimiento devolvio estado ${status}.`,
+    });
 
     return NextResponse.json({
-      ok: status === 1,
+      ok,
       status,
-      mensaje: status === 1 ? "Reproceso ejecutado." : `Procedimiento devolvió estado ${status}.`,
+      mensaje: ok ? "Reproceso ejecutado." : `Procedimiento devolvio estado ${status}.`,
       idDocumento,
       fecha,
+      auditId,
     });
-  } catch (e) {
-    const err = e instanceof Error ? e : new Error(String(e));
-    console.error("[API reprocesar]", err.message);
+  } catch (error) {
+    const err = error instanceof Error ? error : new Error(String(error));
+    const auditId = await insertAdvancedAuditSafe({
+      instance,
+      userApp: adminSession.username,
+      action: actionName,
+      targetType: "VENTA",
+      targetName: idDocumento || authTargetName,
+      result: "FAILED",
+      detail: `Error interno: ${err.message}`,
+    });
+
+    console.error("[API documento/reprocesar]", err.message);
     return NextResponse.json(
-      { error: err.message, ok: false },
-      { status: 500 }
+      { error: err.message, ok: false, auditId },
+      { status: 500 },
     );
   }
 }

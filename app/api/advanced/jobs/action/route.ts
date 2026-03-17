@@ -5,9 +5,11 @@ import {
   ensureAdvancedTables,
   getWhitelistMap,
   insertAdvancedAudit,
+  insertAdvancedAuditSafe,
   resolveInstanceKey,
 } from "@/lib/advancedControl";
 import { getJobRunningState } from "@/lib/advancedJobs";
+import { getAdminSessionFromRequest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
 
@@ -52,7 +54,6 @@ function actionRequiresDisablePermission(action: ActionType) {
 
 export async function POST(request: NextRequest) {
   const instance = resolveInstanceKey(request.headers.get("x-instance"));
-  const userApp = request.headers.get("x-user") ?? null;
 
   let payload: {
     jobName?: string;
@@ -72,6 +73,51 @@ export async function POST(request: NextRequest) {
   const jobName = payload.jobName?.trim() ?? "";
   const action = payload.action?.toUpperCase() as ActionType | undefined;
   const reason = payload.reason?.trim() ?? "";
+
+  const adminSession = getAdminSessionFromRequest(request);
+  if (!adminSession) {
+    const auditId = await insertAdvancedAuditSafe({
+      instance,
+      userApp: null,
+      action: action ?? "UNKNOWN",
+      targetType: "JOB",
+      targetName: jobName || "UNKNOWN",
+      result: "DENIED",
+      detail: "Accion denegada: sesion de administrador requerida.",
+    });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "Sesion de administrador requerida.",
+        auditId,
+      },
+      { status: 401 },
+    );
+  }
+
+  if (adminSession.role !== "ADMIN") {
+    const auditId = await insertAdvancedAuditSafe({
+      instance,
+      userApp: adminSession.username,
+      action: action ?? "UNKNOWN",
+      targetType: "JOB",
+      targetName: jobName || "UNKNOWN",
+      result: "DENIED",
+      detail: "Accion denegada: rol sin privilegios de administrador.",
+    });
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: "El usuario no tiene permisos para ejecutar acciones.",
+        auditId,
+      },
+      { status: 403 },
+    );
+  }
+
+  const userApp = adminSession.username;
 
   if (!jobName || !action || !ALLOWED_ACTIONS.has(action)) {
     return NextResponse.json(
