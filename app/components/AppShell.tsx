@@ -61,7 +61,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 : "Gestion Dynamics Dashboard";
 
   const SidebarContent = ({ currentPath }: { currentPath: string }) => {
-    const { instance } = useInstance();
+    const { instance, isJobsOnly, supportsTransferencias } = useInstance();
     const isNavActiveLocal = (href: string) => {
       if (href === "/") return currentPath === "/";
       return currentPath === href || currentPath.startsWith(`${href}/`);
@@ -119,6 +119,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }, [instance]);
 
     const isAdvancedActive = currentPath.startsWith("/advanced");
+    const visiblePrimaryNavItems = isJobsOnly
+      ? []
+      : primaryNavItems.filter((item) => {
+          if (!supportsTransferencias && item.href === "/transferencias") {
+            return false;
+          }
+          return true;
+        });
+    const visibleAdvancedNavItems = isJobsOnly
+      ? advancedNavItems.filter((item) => item.href === "/advanced/jobs")
+      : advancedNavItems;
+    const advancedRootHref = visibleAdvancedNavItems[0]?.href ?? "/advanced/jobs";
 
     return (
       <div className="flex h-full flex-col bg-zinc-950 text-white">
@@ -149,7 +161,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-4">
-          {primaryNavItems.map((item) => {
+          {visiblePrimaryNavItems.map((item) => {
             const isActive = isNavActiveLocal(item.href);
             return (
               <Link
@@ -194,7 +206,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
           {isDesktopCollapsed ? (
             <Link
-              href="/advanced/jobs"
+              href={advancedRootHref}
               onClick={() => setIsMobileOpen(false)}
               className={`group relative flex items-center justify-center overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 ${
                 isAdvancedActive
@@ -210,14 +222,54 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 />
               )}
-              <Settings2
-                className={`h-5 w-5 transition-colors ${
+              {isJobsOnly ? (
+                <PlayCircle
+                  className={`h-5 w-5 transition-colors ${
+                    isAdvancedActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                  }`}
+                  aria-hidden
+                />
+              ) : (
+                <Settings2
+                  className={`h-5 w-5 transition-colors ${
+                    isAdvancedActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                  }`}
+                  aria-hidden
+                />
+              )}
+              {advancedAlerts > 0 && (
+                <span className="absolute right-2 top-2 inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">
+                  {advancedAlerts > 99 ? "99+" : advancedAlerts}
+                </span>
+              )}
+            </Link>
+          ) : isJobsOnly ? (
+            <Link
+              href={advancedRootHref}
+              onClick={() => setIsMobileOpen(false)}
+              className={`group relative flex w-full items-center rounded-xl px-3 py-3 text-left text-sm font-medium transition-all duration-300 ${
+                isAdvancedActive
+                  ? "bg-zinc-800/80 text-white shadow-sm"
+                  : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+              }`}
+            >
+              {isAdvancedActive && (
+                <motion.div
+                  layoutId="active-nav-indicator"
+                  className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
+                  initial={false}
+                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                />
+              )}
+              <PlayCircle
+                className={`mr-3 h-5 w-5 flex-shrink-0 transition-colors ${
                   isAdvancedActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
                 }`}
                 aria-hidden
               />
+              <span className="overflow-hidden whitespace-nowrap">Jobs SQL Agent</span>
               {advancedAlerts > 0 && (
-                <span className="absolute right-2 top-2 inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">
+                <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">
                   {advancedAlerts > 99 ? "99+" : advancedAlerts}
                 </span>
               )}
@@ -272,7 +324,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                     exit={{ opacity: 0, height: 0 }}
                     className="space-y-1 overflow-hidden pl-4"
                   >
-                    {advancedNavItems.map((item) => {
+                    {visibleAdvancedNavItems.map((item) => {
                       const isActive = isNavActiveLocal(item.href);
                       return (
                         <Link

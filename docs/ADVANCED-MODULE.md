@@ -70,6 +70,26 @@ WHEN NOT MATCHED THEN
   );
 ```
 
+### Carga masiva (ultimos jobs ejecutados)
+
+Para habilitar permisos masivos (START/STOP/ENABLE/DISABLE) sobre los ultimos jobs ejecutados, usa:
+
+- `scripts/sql/seed_advanced_whitelist_recent_jobs.sql`
+
+Parametros del script:
+
+- `@Instancia`: `default` | `andpac` | `tecnobuy` | `dwhdev2`
+- `@DaysBack`: ventana de dias hacia atras (default `7`)
+- `@TopJobs`: cantidad de jobs a permitir (default `20`)
+
+## Scripts utiles
+
+- `scripts/sql/seed_advanced_whitelist_recent_jobs.sql`
+  - Carga permisos de Jobs (START/STOP/ENABLE/DISABLE) para los ultimos jobs ejecutados.
+- `scripts/sql/sync_estado_sii_timbrado_from_folios.sql`
+  - Sincroniza `Ges_EleDocSii.Estado = 2` para folios ya confirmados como timbrados en Folder.
+  - Incluye modo `preview` (`@ApplyChanges = 0`) y modo `apply` (`@ApplyChanges = 1`).
+
 ## Endpoints
 
 - `GET /api/advanced/jobs`
@@ -77,7 +97,24 @@ WHEN NOT MATCHED THEN
 - `GET /api/advanced/sps/running`
 - `GET /api/advanced/alerts/summary`
 
-Todos respetan la cabecera `x-instance` (`default` o `andpac`).
+Todos respetan la cabecera `x-instance` (`default`, `andpac`, `tecnobuy`, `dwhdev2`).
+
+## Instancias y alcance
+
+- `default` (TL Group): modulo completo.
+- `andpac` (AndPac): modulo completo.
+- `tecnobuy` (TecnoBuy): sin modulo `Transferencias`.
+- `dwhdev2` (Data Warehouse Dev2): solo `Avanzados > Jobs`.
+
+En dashboard principal (`/`), cuando la instancia no soporta transferencias (por ejemplo `tecnobuy`):
+
+- No se muestran cards ni boton de `Transferencias`.
+- No se muestra la tabla de incidencias de transferencias.
+
+Variables esperadas en `.env.local`:
+
+- `SQL_SERVER_tecnobuy`, `SQL_DATABASE_tecnobuy`, `SQL_USER_tecnobuy`, `SQL_PASSWORD_tecnobuy`
+- `SQL_SERVER_dwhdev2`, `SQL_DATABASE_dwhdev2`, `SQL_USER_dwhdev2`, `SQL_PASSWORD_dwhdev2`
 
 ## Vista UI
 

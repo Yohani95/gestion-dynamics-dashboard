@@ -19,6 +19,44 @@ function resolveFolderEmpresaId(descripcion: string): string | null {
   return null;
 }
 
+function getFolderMessage(folderData: FolderResponseBody | null, responseOk: boolean): string {
+  return (
+    folderData?.Mensaje ??
+    folderData?.message ??
+    (responseOk ? "Envio exitoso" : "Error en la API de Folder ERP")
+  );
+}
+
+function isFolderBusinessSuccess(message: string): boolean {
+  return /ya se encuentra facturad[oa]/i.test(message);
+}
+
+async function markDocumentoTimbrado(pool: Awaited<ReturnType<typeof getPool>>, documentId: string) {
+  await pool
+    .request()
+    .input("IdDocumento", sql.UniqueIdentifier, documentId)
+    .query(`
+      UPDATE dbo.Ges_EleDocSii
+      SET Estado = 2
+      WHERE Id_Documento = @IdDocumento;
+    `);
+
+  const statusResult = await pool
+    .request()
+    .input("IdDocumento", sql.UniqueIdentifier, documentId)
+    .query<{ Estado: number | null }>(`
+      SELECT TOP 1 Estado
+      FROM dbo.Ges_EleDocSii WITH (NOLOCK)
+      WHERE Id_Documento = @IdDocumento;
+    `);
+
+  const estadoActual = statusResult.recordset[0]?.Estado ?? null;
+  return {
+    estadoActual,
+    estadoActualizado: estadoActual === 2,
+  };
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -28,7 +66,7 @@ export async function POST(request: NextRequest) {
     const instance = request.headers.get("x-instance") || "default";
 
     if (!numero || !tipo) {
-      return NextResponse.json({ ok: false, error: "Número y tipo son obligatorios" }, { status: 400 });
+      return NextResponse.json({ ok: false, error: "Numero y tipo son obligatorios" }, { status: 400 });
     }
 
     const tableMap: Record<string, { table: string; col: string }> = {
@@ -62,9 +100,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: `No se encontró el documento ${tipo} N° ${numero}${empresa ? " para la empresa indicada" : ""}`,
+          error: `No se encontro el documento ${tipo} N ${numero}${empresa ? " para la empresa indicada" : ""}`,
         },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
@@ -83,7 +121,7 @@ export async function POST(request: NextRequest) {
           ok: false,
           error: "No fue posible determinar la entidad para mapear Empresa_ID en Folder.",
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -92,9 +130,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: `La entidad '${descripcionEmpresa}' no está mapeada a Empresa_ID de Folder.`,
+          error: `La entidad '${descripcionEmpresa}' no esta mapeada a Empresa_ID de Folder.`,
         },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -111,10 +149,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: "El procedimiento no devolvió un JSON válido (JsonEnvioSII/JSonEnvioSII).",
-          debug: spRow || "Registro vacío",
+          error: "El procedimiento no devolvio un JSON valido (JsonEnvioSII/JSonEnvioSII).",
+          debug: spRow || "Registro vacio",
         },
-        { status: 500 }
+        { status: 500 },
       );
     }
 
@@ -137,14 +175,38 @@ export async function POST(request: NextRequest) {
       folderData = { raw: rawResponse };
     }
 
+    const mensaje = getFolderMessage(folderData, folderResponse.ok);
+    const folderBusinessSuccess = isFolderBusinessSuccess(mensaje);
+    const folderOk = folderResponse.ok || folderBusinessSuccess;
+
+    let estadoSiiActualizado = false;
+    let estadoSiiActual: number | null = null;
+    let estadoSyncError: string | null = null;
+
+    if (folderOk) {
+      try {
+        const syncStatus = await markDocumentoTimbrado(pool, documentId);
+        estadoSiiActualizado = syncStatus.estadoActualizado;
+        estadoSiiActual = syncStatus.estadoActual;
+        if (!estadoSiiActualizado) {
+          estadoSyncError =
+            "Folder respondio OK, pero no se pudo confirmar Estado_SII=2 en Ges_EleDocSii.";
+        }
+      } catch (syncError) {
+        const syncMessage = syncError instanceof Error ? syncError.message : String(syncError);
+        estadoSyncError = `Folder respondio OK, pero fallo la actualizacion local de Estado_SII: ${syncMessage}`;
+      }
+    }
+
     return NextResponse.json({
-      ok: folderResponse.ok,
+      ok: folderOk,
       status: folderResponse.status,
       data: folderData,
-      mensaje:
-        folderData?.Mensaje ??
-        folderData?.message ??
-        (folderResponse.ok ? "Envío exitoso" : "Error en la API de Folder ERP"),
+      mensaje,
+      folderBusinessSuccess,
+      estadoSiiActualizado,
+      estadoSiiActual,
+      estadoSyncError,
     });
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : String(error);
@@ -152,9 +214,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: message || "Error interno al procesar el envío",
+        error: message || "Error interno al procesar el envio",
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

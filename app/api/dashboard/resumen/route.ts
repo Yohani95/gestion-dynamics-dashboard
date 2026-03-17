@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import sql from "mssql";
 import { getPool } from "@/lib/db";
 import { getAdvancedJobsSnapshot } from "@/lib/advancedJobs";
+import { getInstanceMeta, resolveInstanceId } from "@/lib/instances";
 
 export const dynamic = "force-dynamic";
 
@@ -50,7 +51,9 @@ function toIsoStringOrNull(value: Date | string | null) {
 }
 
 export async function GET(request: NextRequest) {
-  const instance = request.headers.get("x-instance") || "default";
+  const instance = resolveInstanceId(request.headers.get("x-instance"));
+  const instanceMeta = getInstanceMeta(instance);
+  const supportsTransferencias = instanceMeta.supportsTransferencias;
   const fechaCorte = getSantiagoDateString();
 
   try {
@@ -97,99 +100,105 @@ export async function GET(request: NextRequest) {
       RegistradasHoy: 0,
     };
 
-    const abiertasQuery = `
-      WITH LatestStatus AS (
-        SELECT
+    let abiertasRow: TransferenciasAbiertasRow = { Abiertas: 0 };
+    let incidenciaRows: IncidenciaRow[] = [];
+    let errores3Dias = 0;
+
+    if (supportsTransferencias) {
+      const abiertasQuery = `
+        WITH LatestStatus AS (
+          SELECT
+            Traspaso,
+            Tipo,
+            Estado,
+            ROW_NUMBER() OVER(PARTITION BY Traspaso, Tipo ORDER BY Fecha DESC) AS rn
+          FROM Ges_EstadoEnvioTraspasos WITH (NOLOCK)
+        )
+        SELECT COUNT(*) AS Abiertas
+        FROM LatestStatus
+        WHERE rn = 1
+          AND Estado <> 'OK';
+      `;
+
+      const abiertasResult =
+        await pool.request().query<TransferenciasAbiertasRow>(abiertasQuery);
+      abiertasRow = abiertasResult.recordset[0] ?? { Abiertas: 0 };
+
+      const incidenciasRequest = pool.request();
+      incidenciasRequest.input("limite", sql.Int, 10);
+
+      const incidenciasQuery = `
+        WITH LatestLogs AS (
+          SELECT
+            EstiloColor AS Traspaso,
+            Tipo_Carga,
+            Resultado,
+            Fecha_Carga,
+            Atributos,
+            ROW_NUMBER() OVER(
+              PARTITION BY EstiloColor, Tipo_Carga
+              ORDER BY Fecha_Carga DESC
+            ) AS rn_l
+          FROM Ges_LogCargaDynamics WITH (NOLOCK)
+          WHERE Fecha_Carga >= DATEADD(day, -3, GETDATE())
+            AND Tipo_Carga LIKE 'Traspaso%'
+            AND Resultado = 'ERROR'
+        ),
+        LatestStatus AS (
+          SELECT
+            Traspaso,
+            Tipo,
+            Estado,
+            Fecha,
+            ROW_NUMBER() OVER(PARTITION BY Traspaso, Tipo ORDER BY Fecha DESC) AS rn_s
+          FROM Ges_EstadoEnvioTraspasos WITH (NOLOCK)
+        ),
+        Incidencias AS (
+          SELECT
+            S.Traspaso,
+            S.Tipo,
+            S.Estado AS EstadoSat,
+            L.Fecha_Carga AS FechaErrorBc,
+            CASE
+              WHEN CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%is not in inventory%' THEN 'SIN STOCK EN ORIGEN'
+              WHEN CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%We can''t save your changes right now%' THEN 'BLOQUEO TEMP (LOCKING)'
+              ELSE 'OTRO ERROR'
+            END AS MotivoPrincipal,
+            COUNT(*) OVER() AS TotalErrores3Dias
+          FROM LatestLogs L
+          INNER JOIN LatestStatus S
+            ON S.Traspaso = L.Traspaso
+            AND S.rn_s = 1
+            AND (
+              (L.Tipo_Carga LIKE '%Despacho%' AND S.Tipo = 'D') OR
+              (L.Tipo_Carga LIKE '%Recepcion%' AND S.Tipo = 'R')
+            )
+          WHERE L.rn_l = 1
+            AND S.Estado <> 'OK'
+            AND (
+              CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%is not in inventory%' OR
+              CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%We can''t save your changes right now%'
+            )
+        )
+        SELECT TOP (@limite)
           Traspaso,
           Tipo,
-          Estado,
-          ROW_NUMBER() OVER(PARTITION BY Traspaso, Tipo ORDER BY Fecha DESC) AS rn
-        FROM Ges_EstadoEnvioTraspasos WITH (NOLOCK)
-      )
-      SELECT COUNT(*) AS Abiertas
-      FROM LatestStatus
-      WHERE rn = 1
-        AND Estado <> 'OK';
-    `;
+          EstadoSat,
+          FechaErrorBc,
+          MotivoPrincipal,
+          TotalErrores3Dias
+        FROM Incidencias
+        ORDER BY FechaErrorBc DESC;
+      `;
 
-    const abiertasResult =
-      await pool.request().query<TransferenciasAbiertasRow>(abiertasQuery);
-    const abiertasRow = abiertasResult.recordset[0] ?? { Abiertas: 0 };
-
-    const incidenciasRequest = pool.request();
-    incidenciasRequest.input("limite", sql.Int, 10);
-
-    const incidenciasQuery = `
-      WITH LatestLogs AS (
-        SELECT
-          EstiloColor AS Traspaso,
-          Tipo_Carga,
-          Resultado,
-          Fecha_Carga,
-          Atributos,
-          ROW_NUMBER() OVER(
-            PARTITION BY EstiloColor, Tipo_Carga
-            ORDER BY Fecha_Carga DESC
-          ) AS rn_l
-        FROM Ges_LogCargaDynamics WITH (NOLOCK)
-        WHERE Fecha_Carga >= DATEADD(day, -3, GETDATE())
-          AND Tipo_Carga LIKE 'Traspaso%'
-          AND Resultado = 'ERROR'
-      ),
-      LatestStatus AS (
-        SELECT
-          Traspaso,
-          Tipo,
-          Estado,
-          Fecha,
-          ROW_NUMBER() OVER(PARTITION BY Traspaso, Tipo ORDER BY Fecha DESC) AS rn_s
-        FROM Ges_EstadoEnvioTraspasos WITH (NOLOCK)
-      ),
-      Incidencias AS (
-        SELECT
-          S.Traspaso,
-          S.Tipo,
-          S.Estado AS EstadoSat,
-          L.Fecha_Carga AS FechaErrorBc,
-          CASE
-            WHEN CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%is not in inventory%' THEN 'SIN STOCK EN ORIGEN'
-            WHEN CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%We can''t save your changes right now%' THEN 'BLOQUEO TEMP (LOCKING)'
-            ELSE 'OTRO ERROR'
-          END AS MotivoPrincipal,
-          COUNT(*) OVER() AS TotalErrores3Dias
-        FROM LatestLogs L
-        INNER JOIN LatestStatus S
-          ON S.Traspaso = L.Traspaso
-          AND S.rn_s = 1
-          AND (
-            (L.Tipo_Carga LIKE '%Despacho%' AND S.Tipo = 'D') OR
-            (L.Tipo_Carga LIKE '%Recepcion%' AND S.Tipo = 'R')
-          )
-        WHERE L.rn_l = 1
-          AND S.Estado <> 'OK'
-          AND (
-            CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%is not in inventory%' OR
-            CAST(L.Atributos AS VARCHAR(MAX)) LIKE '%We can''t save your changes right now%'
-          )
-      )
-      SELECT TOP (@limite)
-        Traspaso,
-        Tipo,
-        EstadoSat,
-        FechaErrorBc,
-        MotivoPrincipal,
-        TotalErrores3Dias
-      FROM Incidencias
-      ORDER BY FechaErrorBc DESC;
-    `;
-
-    const incidenciasResult =
-      await incidenciasRequest.query<IncidenciaRow>(incidenciasQuery);
-    const incidenciaRows = incidenciasResult.recordset ?? [];
-    const errores3Dias =
-      incidenciaRows.length > 0
-        ? Number(incidenciaRows[0].TotalErrores3Dias ?? incidenciaRows.length)
-        : 0;
+      const incidenciasResult =
+        await incidenciasRequest.query<IncidenciaRow>(incidenciasQuery);
+      incidenciaRows = incidenciasResult.recordset ?? [];
+      errores3Dias =
+        incidenciaRows.length > 0
+          ? Number(incidenciaRows[0].TotalErrores3Dias ?? incidenciaRows.length)
+          : 0;
+    }
 
     let jobsResumen = {
       running: 0,

@@ -4,9 +4,10 @@ import { motion } from "framer-motion";
 import { useInstance, InstanceId } from "./InstanceContext";
 import { Building2, ChevronDown } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
+import { INSTANCE_OPTIONS } from "@/lib/instances";
 
 export default function InstanceSelector() {
-    const { instance, setInstance, instanceName } = useInstance();
+    const { instance, setInstance, instanceName, instanceDescription } = useInstance();
     const [isOpen, setIsOpen] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -20,10 +21,11 @@ export default function InstanceSelector() {
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
 
-    const options: { id: InstanceId; name: string; desc: string }[] = [
-        { id: "default", name: "TL Group", desc: "Instancia Principal (Transferencias)" },
-        { id: "andpac", name: "AndPac", desc: "Instancia de Propiedades / Segunda DV" },
-    ];
+    const options: { id: InstanceId; name: string; desc: string }[] = INSTANCE_OPTIONS.map((option) => ({
+        id: option.id,
+        name: option.name,
+        desc: option.desc,
+    }));
 
     return (
         <div className="relative" ref={dropdownRef}>
@@ -37,6 +39,7 @@ export default function InstanceSelector() {
                 <div className="text-left hidden sm:block">
                     <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider leading-none">Empresa / Instancia</p>
                     <p className="text-sm font-bold text-zinc-900 leading-tight">{instanceName}</p>
+                    <p className="text-[11px] text-zinc-500 leading-tight">{instanceDescription}</p>
                 </div>
                 <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform duration-300 ${isOpen ? "rotate-180" : ""}`} />
             </button>

@@ -73,7 +73,7 @@ function formatDuration(seconds: number | null) {
 }
 
 export default function ExecutiveDashboard() {
-  const { instance, instanceName } = useInstance();
+  const { instance, instanceName, supportsTransferencias } = useInstance();
   const [data, setData] = useState<DashboardResumenResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -133,37 +133,47 @@ export default function ExecutiveDashboard() {
   }, [loadData]);
 
   const cards = useMemo(
-    () => [
-      {
-        key: "sin-enviar",
-        title: "Ventas sin enviar (hoy)",
-        value: data?.ventas.sinEnviarHoy ?? 0,
-        icon: Clock3,
-        tone: "text-amber-700 bg-amber-50 border-amber-100",
-      },
-      {
-        key: "registradas",
-        title: "Ventas registradas (hoy)",
-        value: data?.ventas.registradasHoy ?? 0,
-        icon: CheckCircle2,
-        tone: "text-emerald-700 bg-emerald-50 border-emerald-100",
-      },
-      {
-        key: "errores",
-        title: "Transferencias con error (3 dias)",
-        value: data?.transferencias.errores3Dias ?? 0,
-        icon: AlertTriangle,
-        tone: "text-rose-700 bg-rose-50 border-rose-100",
-      },
-      {
-        key: "abiertas",
-        title: "Transferencias abiertas",
-        value: data?.transferencias.abiertas ?? 0,
-        icon: TrendingUp,
-        tone: "text-indigo-700 bg-indigo-50 border-indigo-100",
-      },
-    ],
-    [data],
+    () => {
+      const baseCards = [
+        {
+          key: "sin-enviar",
+          title: "Ventas sin enviar (hoy)",
+          value: data?.ventas.sinEnviarHoy ?? 0,
+          icon: Clock3,
+          tone: "text-amber-700 bg-amber-50 border-amber-100",
+        },
+        {
+          key: "registradas",
+          title: "Ventas registradas (hoy)",
+          value: data?.ventas.registradasHoy ?? 0,
+          icon: CheckCircle2,
+          tone: "text-emerald-700 bg-emerald-50 border-emerald-100",
+        },
+      ];
+
+      if (!supportsTransferencias) {
+        return baseCards;
+      }
+
+      return [
+        ...baseCards,
+        {
+          key: "errores",
+          title: "Transferencias con error (3 dias)",
+          value: data?.transferencias.errores3Dias ?? 0,
+          icon: AlertTriangle,
+          tone: "text-rose-700 bg-rose-50 border-rose-100",
+        },
+        {
+          key: "abiertas",
+          title: "Transferencias abiertas",
+          value: data?.transferencias.abiertas ?? 0,
+          icon: TrendingUp,
+          tone: "text-indigo-700 bg-indigo-50 border-indigo-100",
+        },
+      ];
+    },
+    [data, supportsTransferencias],
   );
 
   return (
@@ -200,13 +210,15 @@ export default function ExecutiveDashboard() {
               Ir a Ventas
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link
-              href="/transferencias"
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
-            >
-              Ir a Transferencias
-              <ArrowRightLeft className="h-4 w-4" />
-            </Link>
+            {supportsTransferencias && (
+              <Link
+                href="/transferencias"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
+              >
+                Ir a Transferencias
+                <ArrowRightLeft className="h-4 w-4" />
+              </Link>
+            )}
           </div>
         </div>
 
@@ -215,7 +227,11 @@ export default function ExecutiveDashboard() {
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={`grid gap-4 sm:grid-cols-2 ${
+          supportsTransferencias ? "xl:grid-cols-4" : "xl:grid-cols-2"
+        }`}
+      >
         {cards.map((card) => {
           const Icon = card.icon;
           return (
@@ -239,66 +255,68 @@ export default function ExecutiveDashboard() {
         })}
       </div>
 
-      <div className="rounded-3xl border border-zinc-200/70 bg-white shadow-sm">
-        <header className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
-          <div>
-            <h4 className="text-base font-bold text-zinc-900">Top incidencias (10)</h4>
-            <p className="text-sm text-zinc-500">
-              Transferencias con error detectadas en los ultimos 3 dias
-            </p>
-          </div>
-          {refreshing && (
-            <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
-              <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              Actualizando...
-            </span>
-          )}
-        </header>
+      {supportsTransferencias && (
+        <div className="rounded-3xl border border-zinc-200/70 bg-white shadow-sm">
+          <header className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+            <div>
+              <h4 className="text-base font-bold text-zinc-900">Top incidencias (10)</h4>
+              <p className="text-sm text-zinc-500">
+                Transferencias con error detectadas en los ultimos 3 dias
+              </p>
+            </div>
+            {refreshing && (
+              <span className="inline-flex items-center gap-2 text-xs font-semibold text-zinc-500">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                Actualizando...
+              </span>
+            )}
+          </header>
 
-        {loading ? (
-          <div className="p-8 text-center text-sm text-zinc-500">Cargando resumen ejecutivo...</div>
-        ) : error ? (
-          <div className="p-8 text-center">
-            <p className="text-sm font-semibold text-rose-700">{error}</p>
-            <button
-              type="button"
-              onClick={() => void loadData("initial")}
-              className="mt-4 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-100"
-            >
-              Reintentar
-            </button>
-          </div>
-        ) : data && data.topIncidencias.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-zinc-50 text-zinc-500">
-                <tr>
-                  <th className="px-5 py-3 text-left font-semibold">Traspaso</th>
-                  <th className="px-5 py-3 text-left font-semibold">Tipo</th>
-                  <th className="px-5 py-3 text-left font-semibold">Estado SAT</th>
-                  <th className="px-5 py-3 text-left font-semibold">Fecha error BC</th>
-                  <th className="px-5 py-3 text-left font-semibold">Motivo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-100">
-                {data.topIncidencias.map((item) => (
-                  <tr key={`${item.traspaso}-${item.tipo}`} className="hover:bg-zinc-50/80">
-                    <td className="px-5 py-3 font-semibold text-zinc-900">{item.traspaso}</td>
-                    <td className="px-5 py-3 text-zinc-700">{item.tipo}</td>
-                    <td className="px-5 py-3 text-zinc-700">{item.estadoSat}</td>
-                    <td className="px-5 py-3 text-zinc-600">{formatDateTime(item.fechaErrorBc)}</td>
-                    <td className="px-5 py-3 text-zinc-700">{item.motivoPrincipal}</td>
+          {loading ? (
+            <div className="p-8 text-center text-sm text-zinc-500">Cargando resumen ejecutivo...</div>
+          ) : error ? (
+            <div className="p-8 text-center">
+              <p className="text-sm font-semibold text-rose-700">{error}</p>
+              <button
+                type="button"
+                onClick={() => void loadData("initial")}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors hover:bg-rose-100"
+              >
+                Reintentar
+              </button>
+            </div>
+          ) : data && data.topIncidencias.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-zinc-50 text-zinc-500">
+                  <tr>
+                    <th className="px-5 py-3 text-left font-semibold">Traspaso</th>
+                    <th className="px-5 py-3 text-left font-semibold">Tipo</th>
+                    <th className="px-5 py-3 text-left font-semibold">Estado SAT</th>
+                    <th className="px-5 py-3 text-left font-semibold">Fecha error BC</th>
+                    <th className="px-5 py-3 text-left font-semibold">Motivo</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="p-8 text-center text-sm font-medium text-zinc-500">
-            Sin incidencias activas para el periodo configurado.
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {data.topIncidencias.map((item) => (
+                    <tr key={`${item.traspaso}-${item.tipo}`} className="hover:bg-zinc-50/80">
+                      <td className="px-5 py-3 font-semibold text-zinc-900">{item.traspaso}</td>
+                      <td className="px-5 py-3 text-zinc-700">{item.tipo}</td>
+                      <td className="px-5 py-3 text-zinc-700">{item.estadoSat}</td>
+                      <td className="px-5 py-3 text-zinc-600">{formatDateTime(item.fechaErrorBc)}</td>
+                      <td className="px-5 py-3 text-zinc-700">{item.motivoPrincipal}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-8 text-center text-sm font-medium text-zinc-500">
+              Sin incidencias activas para el periodo configurado.
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="rounded-3xl border border-zinc-200/70 bg-white shadow-sm">
         <header className="flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

@@ -1,7 +1,10 @@
 import sql from "mssql";
+import { getInstanceMeta, resolveInstanceId } from "@/lib/instances";
 
 const getConfig = (instance?: string): sql.config => {
-  const suffix = instance === "andpac" ? "_andpac" : "";
+  const instanceId = resolveInstanceId(instance);
+  const suffix = getInstanceMeta(instanceId).envSuffix;
+
   return {
     server: process.env[`SQL_SERVER${suffix}`] ?? "",
     database: process.env[`SQL_DATABASE${suffix}`] ?? "",
@@ -22,7 +25,7 @@ const getConfig = (instance?: string): sql.config => {
 const pools = new Map<string, sql.ConnectionPool>();
 
 export async function getPool(instance?: string): Promise<sql.ConnectionPool> {
-  const key = instance === "andpac" ? "andpac" : "default";
+  const key = resolveInstanceId(instance);
   let pool = pools.get(key);
 
   if (!pool) {

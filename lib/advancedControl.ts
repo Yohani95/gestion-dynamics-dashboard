@@ -1,10 +1,11 @@
 import sql from "mssql";
+import { resolveInstanceId } from "@/lib/instances";
 
 export type AdvancedTargetType = "JOB" | "SP";
 export type AdvancedResult = "SUCCESS" | "FAILED" | "DENIED";
 
 export function resolveInstanceKey(instanceHeader?: string | null) {
-  return instanceHeader === "andpac" ? "andpac" : "default";
+  return resolveInstanceId(instanceHeader);
 }
 
 export async function ensureAdvancedTables(pool: sql.ConnectionPool) {

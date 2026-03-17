@@ -326,13 +326,19 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
       }, instance);
       const json = await res.json();
 
-      // Mostrar solo el Mensaje de la respuesta Folder
       const mensaje = json.mensaje ?? json.data?.Mensaje ?? json.error ?? "Error al consultar estado.";
-      const isFolderBusinessInfo = /ya se encuentra facturad[oa]/i.test(String(mensaje));
+      const ok = json.ok === true;
       setAccionMsg({
-        ok: json.ok === true || isFolderBusinessInfo,
+        ok,
         text: mensaje,
       });
+
+      if (ok && data.numero) {
+        await refreshDocumento(data.numero, {
+          tipo: data.documento.tipo,
+          empresa: data.documento.codEmpresa,
+        });
+      }
     } catch (err) {
       setAccionMsg({ ok: false, text: String(err) });
     } finally {
