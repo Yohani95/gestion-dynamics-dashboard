@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import sql from "mssql";
 import { getPool } from "@/lib/db";
+import { getAdvancedJobsSnapshot } from "@/lib/advancedJobs";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,12 @@ type IncidenciaRow = {
   FechaErrorBc: Date | string | null;
   MotivoPrincipal: string;
   TotalErrores3Dias: number | null;
+};
+
+type JobFallidoResumen = {
+  name: string;
+  lastRunAt: string | null;
+  lastDurationSec: number | null;
 };
 
 function getSantiagoDateString() {
@@ -184,6 +191,48 @@ export async function GET(request: NextRequest) {
         ? Number(incidenciaRows[0].TotalErrores3Dias ?? incidenciaRows.length)
         : 0;
 
+    let jobsResumen = {
+      running: 0,
+      failed24h: 0,
+      longRunning: 0,
+      totalJobs: 0,
+      topFailed: [] as JobFallidoResumen[],
+    };
+
+    try {
+      const jobsSnapshot = await getAdvancedJobsSnapshot({
+        instanceHeader: instance,
+        limit: 500,
+        longRunningMin: 30,
+      });
+
+      const topFailed = jobsSnapshot.jobs
+        .filter((job) => job.isFailed24h && Boolean(job.lastRunAt))
+        .sort((a, b) => {
+          const aTs = a.lastRunAt ?? "";
+          const bTs = b.lastRunAt ?? "";
+          return bTs.localeCompare(aTs);
+        })
+        .slice(0, 5)
+        .map((job) => ({
+          name: job.name,
+          lastRunAt: job.lastRunAt,
+          lastDurationSec: job.lastDurationSec,
+        }));
+
+      jobsResumen = {
+        running: jobsSnapshot.kpis.running,
+        failed24h: jobsSnapshot.kpis.failed24h,
+        longRunning: jobsSnapshot.kpis.longRunning,
+        totalJobs: jobsSnapshot.kpis.totalJobs,
+        topFailed,
+      };
+    } catch (jobsError) {
+      const err =
+        jobsError instanceof Error ? jobsError : new Error(String(jobsError));
+      console.warn("[API dashboard/resumen] jobs resumen no disponible:", err.message);
+    }
+
     return NextResponse.json({
       fechaCorte,
       timezone: "America/Santiago" as const,
@@ -195,6 +244,7 @@ export async function GET(request: NextRequest) {
         errores3Dias,
         abiertas: Number(abiertasRow.Abiertas ?? 0),
       },
+      jobs: jobsResumen,
       topIncidencias: incidenciaRows.map((row) => ({
         traspaso: row.Traspaso,
         tipo: row.Tipo,

@@ -41,3 +41,15 @@ Abre [http://localhost:3000](http://localhost:3000), ingresa un número de docum
 npm run build
 npm start
 ```
+
+## Modulo Avanzados
+
+Se agrego navegacion Avanzados con:
+- Control de SQL Agent jobs (/advanced/jobs).
+- Monitoreo de SP activos (/advanced/sps).
+- Pestaña de ayuda en Jobs (flujo operativo y buenas practicas).
+
+En el dashboard principal, el bloque de Jobs queda separado al final como
+"Resumen Jobs (Avanzados)" para no saturar las cards operativas principales.
+
+Documentacion de configuracion y whitelist: docs/ADVANCED-MODULE.md.

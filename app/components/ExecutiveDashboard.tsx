@@ -24,6 +24,17 @@ type DashboardResumenResponse = {
     errores3Dias: number;
     abiertas: number;
   };
+  jobs: {
+    running: number;
+    failed24h: number;
+    longRunning: number;
+    totalJobs: number;
+    topFailed: Array<{
+      name: string;
+      lastRunAt: string | null;
+      lastDurationSec: number | null;
+    }>;
+  };
   topIncidencias: Array<{
     traspaso: string;
     tipo: "D" | "R" | string;
@@ -35,12 +46,30 @@ type DashboardResumenResponse = {
 
 function formatDateTime(value: string | null) {
   if (!value) return "--";
+  const sqlDateMatch = value.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::\d{2})?$/,
+  );
+  if (sqlDateMatch) {
+    const [, year, month, day, hour, minute] = sqlDateMatch;
+    return `${day}-${month}-${year.slice(2)}, ${hour}:${minute}`;
+  }
+
   const dateValue = new Date(value);
   if (Number.isNaN(dateValue.getTime())) return value;
   return dateValue.toLocaleString("es-CL", {
     dateStyle: "short",
     timeStyle: "short",
   });
+}
+
+function formatDuration(seconds: number | null) {
+  if (seconds === null || Number.isNaN(seconds)) return "--";
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
 }
 
 export default function ExecutiveDashboard() {
@@ -267,6 +296,65 @@ export default function ExecutiveDashboard() {
         ) : (
           <div className="p-8 text-center text-sm font-medium text-zinc-500">
             Sin incidencias activas para el periodo configurado.
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-3xl border border-zinc-200/70 bg-white shadow-sm">
+        <header className="flex flex-col gap-3 border-b border-zinc-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h4 className="text-base font-bold text-zinc-900">Resumen Jobs (Avanzados)</h4>
+            <p className="text-sm text-zinc-500">
+              Vista rapida separada del operativo principal
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center rounded-full border border-sky-100 bg-sky-50 px-3 py-1 text-xs font-semibold text-sky-700">
+              Corriendo: {data?.jobs.running ?? 0}
+            </span>
+            <span className="inline-flex items-center rounded-full border border-rose-100 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+              Fallidos 24h: {data?.jobs.failed24h ?? 0}
+            </span>
+            <Link
+              href="/advanced/jobs"
+              className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-xs font-semibold text-zinc-700 transition-colors hover:bg-zinc-100"
+            >
+              Ver Jobs
+              <ArrowRight className="h-3.5 w-3.5" />
+            </Link>
+          </div>
+        </header>
+
+        {loading ? (
+          <div className="p-6 text-center text-sm text-zinc-500">Cargando jobs...</div>
+        ) : error ? (
+          <div className="p-6 text-center text-sm font-semibold text-rose-700">
+            No fue posible cargar el resumen de jobs.
+          </div>
+        ) : data && data.jobs.topFailed.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-zinc-50 text-zinc-500">
+                <tr>
+                  <th className="px-5 py-3 text-left font-semibold">Job caido</th>
+                  <th className="px-5 py-3 text-left font-semibold">Ultimo fallo</th>
+                  <th className="px-5 py-3 text-left font-semibold">Duracion</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {data.jobs.topFailed.slice(0, 3).map((job) => (
+                  <tr key={`${job.name}-${job.lastRunAt}`} className="hover:bg-zinc-50/80">
+                    <td className="px-5 py-3 font-semibold text-zinc-900">{job.name}</td>
+                    <td className="px-5 py-3 text-zinc-600">{formatDateTime(job.lastRunAt)}</td>
+                    <td className="px-5 py-3 text-zinc-600">{formatDuration(job.lastDurationSec)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="p-6 text-center text-sm font-medium text-zinc-500">
+            Sin jobs caidos en las ultimas 24 horas.
           </div>
         )}
       </div>

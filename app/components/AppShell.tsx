@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -10,26 +10,40 @@ import {
   ArrowRightLeft,
   Menu,
   ChevronRight,
+  Settings2,
+  PlayCircle,
+  Database,
+  ChevronDown,
 } from "lucide-react";
-import { InstanceProvider } from "./InstanceContext";
+import {
+  InstanceProvider,
+  fetchWithInstance,
+  useInstance,
+} from "./InstanceContext";
 import InstanceSelector from "./InstanceSelector";
 import PwaInstallPrompt from "./PwaInstallPrompt";
+
+type NavItem = {
+  name: string;
+  href: string;
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+};
+
+const primaryNavItems: NavItem[] = [
+  { name: "Inicio", href: "/", icon: House },
+  { name: "Ventas (Dynamics)", href: "/ventas", icon: LayoutDashboard },
+  { name: "Transferencias", href: "/transferencias", icon: ArrowRightLeft },
+];
+
+const advancedNavItems: NavItem[] = [
+  { name: "Jobs", href: "/advanced/jobs", icon: PlayCircle },
+  { name: "SP Activos", href: "/advanced/sps", icon: Database },
+];
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
-
-  const navItems = [
-    { name: "Inicio", href: "/", icon: House },
-    { name: "Ventas (Dynamics)", href: "/ventas", icon: LayoutDashboard },
-    { name: "Transferencias", href: "/transferencias", icon: ArrowRightLeft },
-  ];
-
-  const isNavActive = (href: string) => {
-    if (href === "/") return pathname === "/";
-    return pathname === href || pathname.startsWith(`${href}/`);
-  };
 
   const pageTitle =
     pathname === "/"
@@ -38,51 +52,157 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         ? "Diagnostico Integracion Dynamics"
         : pathname.startsWith("/transferencias")
           ? "Gestion de Transferencias"
-          : "Gestion Dynamics Dashboard";
+          : pathname.startsWith("/advanced/jobs")
+            ? "Control SQL Agent Jobs"
+            : pathname.startsWith("/advanced/sps")
+              ? "Monitoreo de SP Activos"
+              : pathname.startsWith("/advanced")
+                ? "Modulo Avanzado"
+                : "Gestion Dynamics Dashboard";
 
-  const SidebarContent = () => (
-    <div className="flex h-full flex-col bg-zinc-950 text-white">
-      <div className="flex h-20 shrink-0 items-center justify-between border-b border-zinc-800 px-6">
-        <AnimatePresence mode="wait">
-          {!isDesktopCollapsed && (
-            <motion.div
-              initial={{ opacity: 0, width: 0 }}
-              animate={{ opacity: 1, width: "auto" }}
-              exit={{ opacity: 0, width: 0 }}
-              className="origin-left overflow-hidden whitespace-nowrap"
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white">
-                  <span className="text-sm font-bold text-zinc-950">TL</span>
+  const SidebarContent = ({ currentPath }: { currentPath: string }) => {
+    const { instance } = useInstance();
+    const isNavActiveLocal = (href: string) => {
+      if (href === "/") return currentPath === "/";
+      return currentPath === href || currentPath.startsWith(`${href}/`);
+    };
+    const [isAdvancedOpen, setIsAdvancedOpen] = useState(
+      currentPath.startsWith("/advanced"),
+    );
+    const [advancedAlerts, setAdvancedAlerts] = useState(0);
+
+    useEffect(() => {
+      if (currentPath.startsWith("/advanced")) {
+        setIsAdvancedOpen(true);
+      }
+    }, [currentPath]);
+
+    useEffect(() => {
+      let isMounted = true;
+
+      const loadAdvancedAlerts = async () => {
+        try {
+          const response = await fetchWithInstance(
+            "/api/advanced/alerts/summary",
+            {},
+            instance,
+          );
+          const json = (await response.json()) as {
+            success?: boolean;
+            failedJobs24h?: number;
+            longRunningJobs?: number;
+          };
+
+          if (!response.ok || !json.success) {
+            return;
+          }
+
+          if (isMounted) {
+            const failed = Number(json.failedJobs24h ?? 0);
+            const longRunning = Number(json.longRunningJobs ?? 0);
+            setAdvancedAlerts(failed + longRunning);
+          }
+        } catch {
+          // Silencio deliberado: no bloquea navegacion si falla el resumen.
+        }
+      };
+
+      void loadAdvancedAlerts();
+      const intervalId = window.setInterval(() => {
+        void loadAdvancedAlerts();
+      }, 30_000);
+
+      return () => {
+        isMounted = false;
+        window.clearInterval(intervalId);
+      };
+    }, [instance]);
+
+    const isAdvancedActive = currentPath.startsWith("/advanced");
+
+    return (
+      <div className="flex h-full flex-col bg-zinc-950 text-white">
+        <div className="flex h-20 shrink-0 items-center justify-between border-b border-zinc-800 px-6">
+          <AnimatePresence mode="wait">
+            {!isDesktopCollapsed && (
+              <motion.div
+                initial={{ opacity: 0, width: 0 }}
+                animate={{ opacity: 1, width: "auto" }}
+                exit={{ opacity: 0, width: 0 }}
+                className="origin-left overflow-hidden whitespace-nowrap"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white">
+                    <span className="text-sm font-bold text-zinc-950">TL</span>
+                  </div>
+                  <span className="font-semibold tracking-wide">TheLineGroup</span>
                 </div>
-                <span className="font-semibold tracking-wide">TheLineGroup</span>
-              </div>
-            </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {isDesktopCollapsed && (
+            <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-white">
+              <span className="text-sm font-bold text-zinc-950">TL</span>
+            </div>
           )}
-        </AnimatePresence>
+        </div>
 
-        {isDesktopCollapsed && (
-          <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg bg-white">
-            <span className="text-sm font-bold text-zinc-950">TL</span>
-          </div>
-        )}
-      </div>
+        <nav className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-4">
+          {primaryNavItems.map((item) => {
+            const isActive = isNavActiveLocal(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setIsMobileOpen(false)}
+                className={`group relative flex items-center overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 ${
+                  isActive
+                    ? "bg-zinc-800/80 text-white shadow-sm"
+                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                }`}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="active-nav-indicator"
+                    className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
+                    initial={false}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  />
+                )}
+                <item.icon
+                  className={`h-5 w-5 flex-shrink-0 transition-colors ${
+                    isActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                  } ${isDesktopCollapsed ? "mx-auto" : "mr-3"}`}
+                  aria-hidden
+                />
+                <AnimatePresence mode="wait">
+                  {!isDesktopCollapsed && (
+                    <motion.span
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      className="overflow-hidden whitespace-nowrap"
+                    >
+                      {item.name}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </Link>
+            );
+          })}
 
-      <nav className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-4">
-        {navItems.map((item) => {
-          const isActive = isNavActive(item.href);
-          return (
+          {isDesktopCollapsed ? (
             <Link
-              key={item.href}
-              href={item.href}
+              href="/advanced/jobs"
               onClick={() => setIsMobileOpen(false)}
-              className={`group relative flex items-center overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 ${
-                isActive
+              className={`group relative flex items-center justify-center overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 ${
+                isAdvancedActive
                   ? "bg-zinc-800/80 text-white shadow-sm"
                   : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
               }`}
             >
-              {isActive && (
+              {isAdvancedActive && (
                 <motion.div
                   layoutId="active-nav-indicator"
                   className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
@@ -90,57 +210,127 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   transition={{ type: "spring", stiffness: 300, damping: 30 }}
                 />
               )}
-              <item.icon
-                className={`h-5 w-5 flex-shrink-0 transition-colors ${
-                  isActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
-                } ${isDesktopCollapsed ? "mx-auto" : "mr-3"}`}
-                aria-hidden="true"
+              <Settings2
+                className={`h-5 w-5 transition-colors ${
+                  isAdvancedActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                }`}
+                aria-hidden
               />
-              <AnimatePresence mode="wait">
-                {!isDesktopCollapsed && (
-                  <motion.span
-                    initial={{ opacity: 0, width: 0 }}
-                    animate={{ opacity: 1, width: "auto" }}
-                    exit={{ opacity: 0, width: 0 }}
-                    className="overflow-hidden whitespace-nowrap"
+              {advancedAlerts > 0 && (
+                <span className="absolute right-2 top-2 inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">
+                  {advancedAlerts > 99 ? "99+" : advancedAlerts}
+                </span>
+              )}
+            </Link>
+          ) : (
+            <div className="space-y-1">
+              <button
+                type="button"
+                onClick={() => setIsAdvancedOpen((prev) => !prev)}
+                className={`group relative flex w-full items-center rounded-xl px-3 py-3 text-left text-sm font-medium transition-all duration-300 ${
+                  isAdvancedActive
+                    ? "bg-zinc-800/80 text-white shadow-sm"
+                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                }`}
+              >
+                {isAdvancedActive && (
+                  <motion.div
+                    layoutId="active-nav-indicator"
+                    className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
+                    initial={false}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  />
+                )}
+
+                <Settings2
+                  className={`mr-3 h-5 w-5 flex-shrink-0 transition-colors ${
+                    isAdvancedActive
+                      ? "text-white"
+                      : "text-zinc-500 group-hover:text-zinc-300"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="overflow-hidden whitespace-nowrap">Avanzados</span>
+
+                <div className="ml-auto flex items-center gap-2">
+                  {advancedAlerts > 0 && (
+                    <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">
+                      {advancedAlerts > 99 ? "99+" : advancedAlerts}
+                    </span>
+                  )}
+                  <motion.div animate={{ rotate: isAdvancedOpen ? 180 : 0 }}>
+                    <ChevronDown className="h-4 w-4" />
+                  </motion.div>
+                </div>
+              </button>
+
+              <AnimatePresence initial={false}>
+                {isAdvancedOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="space-y-1 overflow-hidden pl-4"
                   >
-                    {item.name}
-                  </motion.span>
+                    {advancedNavItems.map((item) => {
+                      const isActive = isNavActiveLocal(item.href);
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setIsMobileOpen(false)}
+                          className={`group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                            isActive
+                              ? "bg-zinc-800 text-white"
+                              : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                          }`}
+                        >
+                          <item.icon
+                            className={`mr-3 h-4 w-4 flex-shrink-0 ${
+                              isActive
+                                ? "text-white"
+                                : "text-zinc-500 group-hover:text-zinc-300"
+                            }`}
+                            aria-hidden
+                          />
+                          <span className="overflow-hidden whitespace-nowrap">{item.name}</span>
+                        </Link>
+                      );
+                    })}
+                  </motion.div>
                 )}
               </AnimatePresence>
-            </Link>
-          );
-        })}
-      </nav>
+            </div>
+          )}
+        </nav>
 
-      <div className="border-t border-zinc-800 p-4">
-        <div
-          className={`rounded-xl border border-zinc-800/50 bg-zinc-900/50 p-3 ${
-            isDesktopCollapsed ? "justify-center" : ""
-          } flex items-center gap-3`}
-        >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 text-xs font-bold ring-2 ring-zinc-800">
-            YE
+        <div className="border-t border-zinc-800 p-4">
+          <div
+            className={`rounded-xl border border-zinc-800/50 bg-zinc-900/50 p-3 ${
+              isDesktopCollapsed ? "justify-center" : ""
+            } flex items-center gap-3`}
+          >
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-zinc-700 to-zinc-600 text-xs font-bold ring-2 ring-zinc-800">
+              YE
+            </div>
+            <AnimatePresence mode="wait">
+              {!isDesktopCollapsed && (
+                <motion.div
+                  initial={{ opacity: 0, width: 0 }}
+                  animate={{ opacity: 1, width: "auto" }}
+                  exit={{ opacity: 0, width: 0 }}
+                  className="flex flex-col overflow-hidden whitespace-nowrap"
+                >
+                  <span className="text-sm font-medium text-zinc-200">Yohani Espinoza</span>
+                  <span className="text-xs text-zinc-500">Administrador</span>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-          <AnimatePresence mode="wait">
-            {!isDesktopCollapsed && (
-              <motion.div
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: "auto" }}
-                exit={{ opacity: 0, width: 0 }}
-                className="flex flex-col overflow-hidden whitespace-nowrap"
-              >
-                <span className="text-sm font-medium text-zinc-200">
-                  Yohani Espinoza
-                </span>
-                <span className="text-xs text-zinc-500">Administrador</span>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <InstanceProvider>
@@ -162,7 +352,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 transition={{ type: "spring", bounce: 0, duration: 0.4 }}
                 className="fixed inset-y-0 left-0 z-50 w-72 shadow-2xl lg:hidden"
               >
-                <SidebarContent />
+                <SidebarContent currentPath={pathname} />
               </motion.div>
             </>
           )}
@@ -173,7 +363,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           transition={{ type: "spring", bounce: 0, duration: 0.4 }}
           className="isolate hidden border-r border-zinc-200/50 shadow-[4px_0_24px_rgba(0,0,0,0.02)] lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:flex-col"
         >
-          <SidebarContent />
+          <SidebarContent currentPath={pathname} />
 
           <button
             onClick={() => setIsDesktopCollapsed(!isDesktopCollapsed)}
@@ -203,9 +393,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <div className="h-6 w-px bg-zinc-200 lg:hidden" aria-hidden="true" />
 
             <div className="flex flex-1 items-center gap-x-4 self-stretch lg:gap-x-6">
-              <h1 className="text-sm font-semibold tracking-tight text-zinc-800">
-                {pageTitle}
-              </h1>
+              <h1 className="text-sm font-semibold tracking-tight text-zinc-800">{pageTitle}</h1>
               <div className="ml-auto flex items-center gap-x-4 lg:gap-x-6">
                 <InstanceSelector />
               </div>
