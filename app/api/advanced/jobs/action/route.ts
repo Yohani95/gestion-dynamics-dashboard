@@ -8,7 +8,7 @@ import {
   insertAdvancedAuditSafe,
   resolveInstanceKey,
 } from "@/lib/advancedControl";
-import { getJobRunningState } from "@/lib/advancedJobs";
+import { getJobRunningState, invalidateAdvancedJobsCache } from "@/lib/advancedJobs";
 import { getAdminSessionFromRequest } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -312,6 +312,7 @@ export async function POST(request: NextRequest) {
         detail: reason ? `Motivo usuario: ${reason}` : null,
       });
 
+      invalidateAdvancedJobsCache(instance);
       return NextResponse.json({
         success: true,
         message: "Job habilitado correctamente.",
@@ -359,6 +360,7 @@ export async function POST(request: NextRequest) {
         detail: reason ? `Motivo usuario: ${reason}` : null,
       });
 
+      invalidateAdvancedJobsCache(instance);
       return NextResponse.json({
         success: true,
         message: "Job deshabilitado correctamente.",
@@ -405,6 +407,7 @@ export async function POST(request: NextRequest) {
         detail: reason ? `Motivo usuario: ${reason}` : null,
       });
 
+      invalidateAdvancedJobsCache(instance);
       return NextResponse.json({
         success: true,
         message: "Job iniciado correctamente.",
@@ -452,6 +455,7 @@ export async function POST(request: NextRequest) {
         detail: reason ? `Motivo usuario: ${reason}` : null,
       });
 
+      invalidateAdvancedJobsCache(instance);
       return NextResponse.json({
         success: true,
         message: "Job detenido correctamente.",
@@ -529,6 +533,7 @@ export async function POST(request: NextRequest) {
       detail: reason ? `Motivo usuario: ${reason}` : null,
     });
 
+    invalidateAdvancedJobsCache(instance);
     return NextResponse.json({
       success: true,
       message: "Job re-ejecutado correctamente.",

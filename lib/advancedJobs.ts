@@ -42,6 +42,13 @@ export type AdvancedJobItem = {
   canDisable: boolean;
 };
 
+export type AdvancedJobsKpis = {
+  running: number;
+  failed24h: number;
+  longRunning: number;
+  totalJobs: number;
+};
+
 export type AdvancedJobsSnapshot = {
   jobs: AdvancedJobItem[];
   filteredCount: number;
@@ -49,12 +56,17 @@ export type AdvancedJobsSnapshot = {
   page: number;
   pageSize: number;
   totalPages: number;
-  kpis: {
-    running: number;
-    failed24h: number;
-    longRunning: number;
-    totalJobs: number;
-  };
+  kpis: AdvancedJobsKpis;
+};
+
+type AdvancedJobsBaseSnapshot = {
+  jobs: AdvancedJobItem[];
+  kpis: AdvancedJobsKpis;
+};
+
+type AdvancedJobsCacheEntry = {
+  expiresAt: number;
+  data: AdvancedJobsBaseSnapshot;
 };
 
 type SqlJobRow = {
@@ -70,6 +82,35 @@ type SqlJobRow = {
   LastRunSeconds: number | null;
   NextRunAt: string | null;
 };
+
+const ADVANCED_JOBS_CACHE_TTL_MS = (() => {
+  const parsed = Number.parseInt(process.env.ADVANCED_JOBS_CACHE_TTL_MS ?? "15000", 10);
+  if (Number.isNaN(parsed)) return 15_000;
+  return Math.min(Math.max(parsed, 1_000), 120_000);
+})();
+
+const advancedJobsCache = new Map<string, AdvancedJobsCacheEntry>();
+const advancedJobsInFlight = new Map<string, Promise<AdvancedJobsBaseSnapshot>>();
+const advancedJobsCacheVersionByInstance = new Map<string, number>();
+
+function getSnapshotCacheKey(instance: string, longRunningMin: number) {
+  const version = advancedJobsCacheVersionByInstance.get(instance) ?? 0;
+  return `${instance}:${version}:${longRunningMin}`;
+}
+
+export function invalidateAdvancedJobsCache(instanceHeader?: string | null) {
+  const instance = resolveInstanceKey(instanceHeader);
+  const nextVersion = (advancedJobsCacheVersionByInstance.get(instance) ?? 0) + 1;
+  advancedJobsCacheVersionByInstance.set(instance, nextVersion);
+
+  const prefix = `${instance}:`;
+
+  for (const key of advancedJobsCache.keys()) {
+    if (key.startsWith(prefix)) {
+      advancedJobsCache.delete(key);
+    }
+  }
+}
 
 function rowPriority(row: SqlJobRow) {
   let score = 0;
@@ -137,7 +178,7 @@ function normalizeStatusFilter(status?: string | null) {
   return "ALL";
 }
 
-function computeKpis(jobs: AdvancedJobItem[]) {
+function computeKpis(jobs: AdvancedJobItem[]): AdvancedJobsKpis {
   const longRunning = jobs.filter((job) => job.status === "LONG_RUNNING").length;
   const running = jobs.filter((job) => job.status === "RUNNING").length;
   const failed24h = jobs.filter((job) => job.isFailed24h).length;
@@ -150,28 +191,18 @@ function computeKpis(jobs: AdvancedJobItem[]) {
   };
 }
 
-export async function getAdvancedJobsSnapshot(options: {
-  instanceHeader?: string | null;
-  status?: string | null;
-  search?: string | null;
-  limit?: number | null;
-  page?: number | null;
-  longRunningMin?: number | null;
-}): Promise<AdvancedJobsSnapshot> {
-  const instance = resolveInstanceKey(options.instanceHeader);
-  const search = options.search?.trim().toLowerCase() ?? "";
-  const statusFilter = normalizeStatusFilter(options.status);
-  const limit = Math.min(Math.max(options.limit ?? 50, 1), 500);
-  const page = Math.max(options.page ?? 1, 1);
-  const longRunningMin = Math.min(Math.max(options.longRunningMin ?? 30, 1), 180);
-
+async function loadAdvancedJobsBaseSnapshot(options: {
+  instance: string;
+  longRunningMin: number;
+}): Promise<AdvancedJobsBaseSnapshot> {
+  const { instance, longRunningMin } = options;
   const pool = await getPool(instance);
   await ensureAdvancedTables(pool);
 
   const jobRows = await pool.request().query<SqlJobRow>(`
     WITH AgentSession AS (
       SELECT TOP 1 session_id
-      FROM msdb.dbo.syssessions
+      FROM msdb.dbo.syssessions WITH (NOLOCK)
       ORDER BY agent_start_date DESC
     ),
     RunningSessionJobs AS (
@@ -205,7 +236,7 @@ export async function getAdvancedJobsSnapshot(options: {
               ISNULL(ja.start_execution_date, CONVERT(DATETIME, '19000101', 112)) DESC,
               ISNULL(ja.run_requested_date, CONVERT(DATETIME, '19000101', 112)) DESC
           ) AS rn
-        FROM msdb.dbo.sysjobactivity ja
+        FROM msdb.dbo.sysjobactivity ja WITH (NOLOCK)
         CROSS JOIN AgentSession s
         WHERE ja.session_id = s.session_id
       ) r
@@ -229,15 +260,15 @@ export async function getAdvancedJobsSnapshot(options: {
           + (((h.run_duration % 10000) / 100) * 60)
           + (h.run_duration % 100) AS LastRunSeconds,
         ROW_NUMBER() OVER (PARTITION BY h.job_id ORDER BY h.instance_id DESC) AS rn
-      FROM msdb.dbo.sysjobhistory h
+      FROM msdb.dbo.sysjobhistory h WITH (NOLOCK)
       WHERE h.step_id = 0
     ),
     NextRun AS (
       SELECT
         js.job_id,
         MIN(n.NextRunAt) AS NextRunAt
-      FROM msdb.dbo.sysjobschedules js
-      INNER JOIN msdb.dbo.sysschedules s
+      FROM msdb.dbo.sysjobschedules js WITH (NOLOCK)
+      INNER JOIN msdb.dbo.sysschedules s WITH (NOLOCK)
         ON s.schedule_id = js.schedule_id
         AND s.enabled = 1
       CROSS APPLY (
@@ -311,7 +342,7 @@ export async function getAdvancedJobsSnapshot(options: {
       END AS LastRunMessage,
       lr.LastRunSeconds,
       CONVERT(VARCHAR(19), nr.NextRunAt, 120) AS NextRunAt
-    FROM msdb.dbo.sysjobs j
+    FROM msdb.dbo.sysjobs j WITH (NOLOCK)
     LEFT JOIN CurrentActivity ca ON ca.job_id = j.job_id
     LEFT JOIN LastRun lr ON lr.job_id = j.job_id AND lr.rn = 1
     LEFT JOIN NextRun nr ON nr.job_id = j.job_id
@@ -320,7 +351,7 @@ export async function getAdvancedJobsSnapshot(options: {
         hs.step_id AS FailedStepId,
         hs.step_name AS FailedStepName,
         hs.message AS FailedStepMessage
-      FROM msdb.dbo.sysjobhistory hs
+      FROM msdb.dbo.sysjobhistory hs WITH (NOLOCK)
       WHERE hs.job_id = j.job_id
         AND hs.step_id > 0
         AND hs.run_status = 0
@@ -393,7 +424,71 @@ export async function getAdvancedJobsSnapshot(options: {
     } satisfies AdvancedJobItem;
   });
 
-  const kpis = computeKpis(allJobs);
+  return {
+    jobs: allJobs,
+    kpis: computeKpis(allJobs),
+  };
+}
+
+async function getAdvancedJobsBaseSnapshot(options: {
+  instance: string;
+  longRunningMin: number;
+  forceFresh: boolean;
+}): Promise<AdvancedJobsBaseSnapshot> {
+  const { instance, longRunningMin, forceFresh } = options;
+  const key = getSnapshotCacheKey(instance, longRunningMin);
+  const now = Date.now();
+
+  if (!forceFresh) {
+    const cached = advancedJobsCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+  }
+
+  const inFlight = advancedJobsInFlight.get(key);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const loader = loadAdvancedJobsBaseSnapshot({ instance, longRunningMin })
+    .then((data) => {
+      advancedJobsCache.set(key, {
+        data,
+        expiresAt: Date.now() + ADVANCED_JOBS_CACHE_TTL_MS,
+      });
+      return data;
+    })
+    .finally(() => {
+      advancedJobsInFlight.delete(key);
+    });
+
+  advancedJobsInFlight.set(key, loader);
+  return loader;
+}
+
+export async function getAdvancedJobsSnapshot(options: {
+  instanceHeader?: string | null;
+  status?: string | null;
+  search?: string | null;
+  limit?: number | null;
+  page?: number | null;
+  longRunningMin?: number | null;
+  forceFresh?: boolean | null;
+}): Promise<AdvancedJobsSnapshot> {
+  const instance = resolveInstanceKey(options.instanceHeader);
+  const search = options.search?.trim().toLowerCase() ?? "";
+  const statusFilter = normalizeStatusFilter(options.status);
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 500);
+  const page = Math.max(options.page ?? 1, 1);
+  const longRunningMin = Math.min(Math.max(options.longRunningMin ?? 30, 1), 180);
+  const baseSnapshot = await getAdvancedJobsBaseSnapshot({
+    instance,
+    longRunningMin,
+    forceFresh: options.forceFresh === true,
+  });
+  const allJobs = baseSnapshot.jobs;
+  const kpis = baseSnapshot.kpis;
 
   const filtered = allJobs.filter((job) => {
     if (statusFilter !== "ALL" && job.status !== statusFilter) {
@@ -438,13 +533,13 @@ export async function getJobRunningState(
           AND CHARINDEX('0x', s.program_name) > 0
       )
       SELECT
-        CAST(
+      CAST(
           CASE
             WHEN rs.JobIdHex IS NOT NULL THEN 1
             ELSE 0
           END
         AS bit) AS IsRunning
-      FROM msdb.dbo.sysjobs j
+      FROM msdb.dbo.sysjobs j WITH (NOLOCK)
       LEFT JOIN RunningSessionJobs rs
         ON rs.JobIdHex = UPPER(
           sys.fn_varbintohexstr(CAST(j.job_id AS VARBINARY(16)))

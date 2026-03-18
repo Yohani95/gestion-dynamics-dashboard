@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -79,9 +79,15 @@ export default function ExecutiveDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  const loadInFlightRef = useRef(false);
 
   const loadData = useCallback(
     async (mode: "initial" | "refresh" = "initial") => {
+      if (loadInFlightRef.current) {
+        return;
+      }
+      loadInFlightRef.current = true;
+
       if (mode === "initial") {
         setLoading(true);
       } else {
@@ -114,6 +120,7 @@ export default function ExecutiveDashboard() {
             : "Error inesperado al obtener el dashboard.";
         setError(message);
       } finally {
+        loadInFlightRef.current = false;
         setLoading(false);
         setRefreshing(false);
       }
@@ -123,12 +130,28 @@ export default function ExecutiveDashboard() {
 
   useEffect(() => {
     void loadData("initial");
-    const intervalId = window.setInterval(() => {
+
+    const runRefresh = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
       void loadData("refresh");
+    };
+
+    const intervalId = window.setInterval(() => {
+      runRefresh();
     }, 60_000);
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        runRefresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [loadData]);
 

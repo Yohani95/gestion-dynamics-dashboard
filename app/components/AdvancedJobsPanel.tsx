@@ -53,17 +53,6 @@ type AdvancedJob = {
 type JobsResponse = {
   success: boolean;
   data: AdvancedJob[];
-  filteredCount: number;
-  totalCount: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-  kpis: {
-    running: number;
-    failed24h: number;
-    longRunning: number;
-    totalJobs: number;
-  };
   error?: string;
 };
 
@@ -123,6 +112,20 @@ function getFailedRunMessage(message: string | null) {
 function getFullFailedRunMessage(message: string | null) {
   if (!message) return "Sin detalle de error en historial.";
   return message;
+}
+
+function deriveStatus(job: {
+  isEnabled: boolean;
+  isRunning: boolean;
+  isLongRunning: boolean;
+  lastRunOutcome: AdvancedJob["lastRunOutcome"];
+}): JobStatus {
+  if (!job.isEnabled) return "DISABLED";
+  if (job.isRunning && job.isLongRunning) return "LONG_RUNNING";
+  if (job.isRunning) return "RUNNING";
+  if (job.lastRunOutcome === "FAILED") return "FAILED";
+  if (job.lastRunOutcome === "SUCCEEDED") return "SUCCEEDED";
+  return "IDLE";
 }
 
 async function copyToClipboard(text: string) {
@@ -193,26 +196,13 @@ export default function AdvancedJobsPanel() {
   const [page, setPage] = useState(1);
   const [longRunningMin, setLongRunningMin] = useState(30);
 
-  const [kpis, setKpis] = useState({
-    running: 0,
-    failed24h: 0,
-    longRunning: 0,
-    totalJobs: 0,
-  });
-
-  const [counts, setCounts] = useState({ filteredCount: 0, totalCount: 0 });
-  const [pageInfo, setPageInfo] = useState({
-    page: 1,
-    pageSize: 50,
-    totalPages: 1,
-  });
-
   const [openMenu, setOpenMenu] = useState<{
     jobName: string;
     x: number;
     y: number;
   } | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
+  const loadInFlightRef = useRef(false);
 
   const [confirmAction, setConfirmAction] = useState<{
     jobName: string;
@@ -230,6 +220,11 @@ export default function AdvancedJobsPanel() {
 
   const loadData = useCallback(
     async (mode: "initial" | "refresh" = "initial") => {
+      if (loadInFlightRef.current) {
+        return;
+      }
+      loadInFlightRef.current = true;
+
       if (mode === "initial") {
         setLoading(true);
       } else {
@@ -239,13 +234,10 @@ export default function AdvancedJobsPanel() {
       setError(null);
       try {
         const params = new URLSearchParams({
-          status,
-          search,
-          limit: String(limit),
-          page: String(page),
-          longRunningMin: String(longRunningMin),
+          limit: "500",
+          page: "1",
+          longRunningMin: "30",
         });
-
         const res = await fetchWithInstance(`/api/advanced/jobs?${params.toString()}`, {}, instance);
         const json = (await res.json()) as JobsResponse;
 
@@ -254,16 +246,6 @@ export default function AdvancedJobsPanel() {
         }
 
         setJobs(json.data);
-        setCounts({ filteredCount: json.filteredCount, totalCount: json.totalCount });
-        setPageInfo({
-          page: json.page,
-          pageSize: json.pageSize,
-          totalPages: json.totalPages,
-        });
-        if (json.page !== page) {
-          setPage(json.page);
-        }
-        setKpis(json.kpis);
       } catch (requestError) {
         const message =
           requestError instanceof Error
@@ -271,11 +253,12 @@ export default function AdvancedJobsPanel() {
             : "Error inesperado al obtener jobs.";
         setError(message);
       } finally {
+        loadInFlightRef.current = false;
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [instance, limit, longRunningMin, page, search, status],
+    [instance],
   );
 
   useEffect(() => {
@@ -283,12 +266,27 @@ export default function AdvancedJobsPanel() {
   }, [loadData]);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
+    const runRefresh = () => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
       void loadData("refresh");
+    };
+
+    const intervalId = window.setInterval(() => {
+      runRefresh();
     }, 30_000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        runRefresh();
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [loadData]);
 
@@ -327,6 +325,81 @@ export default function AdvancedJobsPanel() {
     };
   }, []);
 
+  const jobsWithDerivedState = useMemo(() => {
+    return jobs.map((job) => {
+      const isLongRunning =
+        Boolean(job.isRunning) &&
+        typeof job.currentRunSec === "number" &&
+        job.currentRunSec >= longRunningMin * 60;
+
+      return {
+        ...job,
+        isLongRunning,
+        status: deriveStatus({
+          isEnabled: job.isEnabled,
+          isRunning: job.isRunning,
+          isLongRunning,
+          lastRunOutcome: job.lastRunOutcome,
+        }),
+      } satisfies AdvancedJob;
+    });
+  }, [jobs, longRunningMin]);
+
+  const filteredJobs = useMemo(() => {
+    const normalizedSearch = search.trim().toLowerCase();
+
+    return jobsWithDerivedState.filter((job) => {
+      if (status !== "ALL" && job.status !== status) {
+        return false;
+      }
+
+      if (normalizedSearch.length > 0 && !job.name.toLowerCase().includes(normalizedSearch)) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [jobsWithDerivedState, search, status]);
+
+  const pageInfo = useMemo(() => {
+    const totalPages = Math.max(1, Math.ceil(filteredJobs.length / limit));
+    const safePage = Math.min(page, totalPages);
+    return {
+      page: safePage,
+      pageSize: limit,
+      totalPages,
+    };
+  }, [filteredJobs.length, limit, page]);
+
+  useEffect(() => {
+    if (page !== pageInfo.page) {
+      setPage(pageInfo.page);
+    }
+  }, [page, pageInfo.page]);
+
+  const visibleJobs = useMemo(() => {
+    const startIndex = (pageInfo.page - 1) * pageInfo.pageSize;
+    return filteredJobs.slice(startIndex, startIndex + pageInfo.pageSize);
+  }, [filteredJobs, pageInfo.page, pageInfo.pageSize]);
+
+  const counts = useMemo(
+    () => ({
+      filteredCount: filteredJobs.length,
+      totalCount: jobsWithDerivedState.length,
+    }),
+    [filteredJobs.length, jobsWithDerivedState.length],
+  );
+
+  const kpis = useMemo(
+    () => ({
+      running: jobsWithDerivedState.filter((job) => job.status === "RUNNING").length,
+      failed24h: jobsWithDerivedState.filter((job) => job.isFailed24h).length,
+      longRunning: jobsWithDerivedState.filter((job) => job.status === "LONG_RUNNING").length,
+      totalJobs: jobsWithDerivedState.length,
+    }),
+    [jobsWithDerivedState],
+  );
+
   const cards = useMemo(
     () => [
       {
@@ -354,7 +427,7 @@ export default function AdvancedJobsPanel() {
         tone: "bg-zinc-100 text-zinc-700 border-zinc-200",
       },
     ],
-    [kpis],
+    [kpis.failed24h, kpis.longRunning, kpis.running, kpis.totalJobs],
   );
 
   const closeModal = () => {
@@ -517,7 +590,7 @@ export default function AdvancedJobsPanel() {
   };
 
   const selectedMenuJob = openMenu
-    ? jobs.find((job) => job.name === openMenu.jobName) ?? null
+    ? visibleJobs.find((job) => job.name === openMenu.jobName) ?? null
     : null;
 
   useEffect(() => {
@@ -693,7 +766,7 @@ export default function AdvancedJobsPanel() {
               Reintentar
             </button>
           </div>
-        ) : jobs.length === 0 ? (
+        ) : filteredJobs.length === 0 ? (
           <div className="p-10 text-center text-sm font-medium text-zinc-500">
             No se encontraron jobs con los filtros actuales.
           </div>
@@ -713,7 +786,7 @@ export default function AdvancedJobsPanel() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100">
-                  {jobs.map((job) => {
+                  {visibleJobs.map((job) => {
                     const failedMessage = getFailedRunMessage(job.lastRunMessage);
 
                     return (

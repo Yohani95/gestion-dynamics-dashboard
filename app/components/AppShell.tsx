@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
@@ -74,6 +74,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       currentPath.startsWith("/advanced"),
     );
     const [advancedAlerts, setAdvancedAlerts] = useState(0);
+    const loadAlertsInFlightRef = useRef(false);
 
     useEffect(() => {
       if (currentPath.startsWith("/advanced")) {
@@ -85,6 +86,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       let isMounted = true;
 
       const loadAdvancedAlerts = async () => {
+        if (!isMounted) return;
+        if (document.visibilityState !== "visible") return;
+        if (loadAlertsInFlightRef.current) return;
+
+        loadAlertsInFlightRef.current = true;
         try {
           const response = await fetchWithInstance(
             "/api/advanced/alerts/summary",
@@ -108,6 +114,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           }
         } catch {
           // Silencio deliberado: no bloquea navegacion si falla el resumen.
+        } finally {
+          loadAlertsInFlightRef.current = false;
         }
       };
 
@@ -116,9 +124,17 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         void loadAdvancedAlerts();
       }, 30_000);
 
+      const onVisibilityChange = () => {
+        if (document.visibilityState === "visible") {
+          void loadAdvancedAlerts();
+        }
+      };
+      document.addEventListener("visibilitychange", onVisibilityChange);
+
       return () => {
         isMounted = false;
         window.clearInterval(intervalId);
+        document.removeEventListener("visibilitychange", onVisibilityChange);
       };
     }, [instance]);
 

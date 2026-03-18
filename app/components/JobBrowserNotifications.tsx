@@ -110,6 +110,7 @@ export default function JobBrowserNotifications() {
   const [, setPermissionVersion] = useState(0);
   const [pollStatus, setPollStatus] = useState<"idle" | "ok" | "error">("idle");
   const [lastPollAt, setLastPollAt] = useState<string | null>(null);
+  const pollInFlightRef = useRef(false);
   const previousByInstanceRef = useRef<
     Partial<
       Record<
@@ -157,6 +158,11 @@ export default function JobBrowserNotifications() {
     let active = true;
 
     const poll = async () => {
+      if (!active) return;
+      if (document.visibilityState !== "visible") return;
+      if (pollInFlightRef.current) return;
+
+      pollInFlightRef.current = true;
       try {
         const response = await fetchWithInstance(
           "/api/advanced/alerts/summary",
@@ -225,6 +231,8 @@ export default function JobBrowserNotifications() {
           setPollStatus("error");
           setLastPollAt(new Date().toISOString());
         }
+      } finally {
+        pollInFlightRef.current = false;
       }
     };
 
@@ -233,9 +241,17 @@ export default function JobBrowserNotifications() {
       void poll();
     }, 30_000);
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void poll();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       active = false;
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
   }, [enabled, instance, instanceName, permission, showNotification, supported]);
 

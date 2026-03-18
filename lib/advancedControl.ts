@@ -9,8 +9,21 @@ export function resolveInstanceKey(instanceHeader?: string | null) {
   return resolveInstanceId(instanceHeader);
 }
 
+const ensuredAdvancedTablesPools = new WeakSet<sql.ConnectionPool>();
+const ensureAdvancedTablesInFlight = new WeakMap<sql.ConnectionPool, Promise<void>>();
+
 export async function ensureAdvancedTables(pool: sql.ConnectionPool) {
-  await pool
+  if (ensuredAdvancedTablesPools.has(pool)) {
+    return;
+  }
+
+  const inFlight = ensureAdvancedTablesInFlight.get(pool);
+  if (inFlight) {
+    await inFlight;
+    return;
+  }
+
+  const ensurePromise = pool
     .request()
     .query(`
       IF OBJECT_ID('dbo.Ges_AdvancedWhitelist', 'U') IS NULL
@@ -66,7 +79,16 @@ export async function ensureAdvancedTables(pool: sql.ConnectionPool) {
         CREATE INDEX IX_GesAdvancedAudit_Fecha
           ON dbo.Ges_AdvancedAudit (Fecha DESC);
       END;
-    `);
+    `)
+    .then(() => {
+      ensuredAdvancedTablesPools.add(pool);
+    })
+    .finally(() => {
+      ensureAdvancedTablesInFlight.delete(pool);
+    });
+
+  ensureAdvancedTablesInFlight.set(pool, ensurePromise);
+  await ensurePromise;
 }
 
 export async function getWhitelistMap(
