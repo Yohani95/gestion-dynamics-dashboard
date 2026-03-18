@@ -37,6 +37,7 @@ type AdvancedJob = {
   isRunning: boolean;
   isLongRunning: boolean;
   status: JobStatus;
+  isFailed24h: boolean;
   startedAt: string | null;
   currentRunSec: number | null;
   lastRunAt: string | null;
