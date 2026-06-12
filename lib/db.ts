@@ -1,16 +1,44 @@
 import sql from "mssql";
 import { getInstanceMeta, resolveInstanceId } from "@/lib/instances";
 
+/** SQL Server acepta "host,puerto" en cadenas de conexión; tedious/mssql requieren host y port por separado. */
+function parseServerHostAndPort(
+  serverRaw: string,
+  portEnv: string | undefined
+): { server: string; port: number } {
+  const trimmed = serverRaw.trim();
+  const comma = trimmed.lastIndexOf(",");
+  if (comma !== -1) {
+    const host = trimmed.slice(0, comma).trim();
+    const portPart = trimmed.slice(comma + 1).trim();
+    const portFromHost = parseInt(portPart, 10);
+    if (host && !Number.isNaN(portFromHost)) {
+      return { server: host, port: portFromHost };
+    }
+  }
+  const fallback = portEnv ? parseInt(portEnv, 10) : 1433;
+  return {
+    server: trimmed,
+    port: Number.isNaN(fallback) ? 1433 : fallback,
+  };
+}
+
 const getConfig = (instance?: string): sql.config => {
   const instanceId = resolveInstanceId(instance);
   const suffix = getInstanceMeta(instanceId).envSuffix;
 
+  const serverRaw = process.env[`SQL_SERVER${suffix}`] ?? "";
+  const { server, port } = parseServerHostAndPort(
+    serverRaw,
+    process.env[`SQL_PORT${suffix}`]
+  );
+
   return {
-    server: process.env[`SQL_SERVER${suffix}`] ?? "",
+    server,
     database: process.env[`SQL_DATABASE${suffix}`] ?? "",
     user: process.env[`SQL_USER${suffix}`] || undefined,
     password: process.env[`SQL_PASSWORD${suffix}`] || undefined,
-    port: process.env[`SQL_PORT${suffix}`] ? parseInt(process.env[`SQL_PORT${suffix}`]!, 10) : 1433,
+    port,
     connectionTimeout: 180000,
     requestTimeout: 180000,
     pool: { max: 10, min: 0 },

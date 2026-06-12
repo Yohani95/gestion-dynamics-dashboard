@@ -1,7 +1,7 @@
 # Inicia la app manualmente (para pruebas o sin servicio)
 # Uso: .\scripts\start-app.ps1
 
-param([int]$Port = 3000)
+param([int]$Port = 3100)
 
 $AppDir = Split-Path -Parent $PSScriptRoot
 Set-Location $AppDir

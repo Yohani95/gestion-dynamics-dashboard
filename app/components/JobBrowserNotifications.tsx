@@ -239,7 +239,7 @@ export default function JobBrowserNotifications() {
     void poll();
     const timer = window.setInterval(() => {
       void poll();
-    }, 30_000);
+    }, 60_000);
 
     const onVisibilityChange = () => {
       if (document.visibilityState === "visible") {

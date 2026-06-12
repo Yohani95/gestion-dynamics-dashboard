@@ -150,7 +150,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     () => ({
       loading,
       authenticated,
-      isAdmin: authenticated && role === "ADMIN",
+      isAdmin: authenticated && role?.toUpperCase() === "ADMIN",
       username,
       role,
       expiresAt,

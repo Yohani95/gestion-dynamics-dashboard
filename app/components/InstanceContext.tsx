@@ -83,6 +83,9 @@ export function InstanceProvider({ children }: { children: ReactNode }) {
   const setInstance = useCallback((id: InstanceId) => {
     const safeInstance = resolveInstanceId(id);
     sessionStorage.setItem(STORAGE_KEY, safeInstance);
+    // Claves legacy sin instancia (evita mostrar búsquedas de otra BD).
+    sessionStorage.removeItem("gestion-dash-documento-numero");
+    sessionStorage.removeItem("gestion-dash-documento-result");
     notifyInstanceChange();
 
     const meta = getInstanceMeta(safeInstance);
@@ -133,6 +136,7 @@ export async function fetchWithInstance(url: string, options: RequestInit = {}, 
 
   return fetch(url, {
     ...options,
+    cache: options.cache ?? "no-store",
     headers,
   });
 }

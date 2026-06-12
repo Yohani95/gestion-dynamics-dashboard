@@ -204,6 +204,7 @@ export default function AdvancedJobsPanel() {
   } | null>(null);
   const menuPanelRef = useRef<HTMLDivElement | null>(null);
   const loadInFlightRef = useRef(false);
+  const instanceRef = useRef(instance);
 
   const [confirmAction, setConfirmAction] = useState<{
     jobName: string;
@@ -219,12 +220,17 @@ export default function AdvancedJobsPanel() {
     message: string;
   } | null>(null);
 
+  useEffect(() => {
+    instanceRef.current = instance;
+  }, [instance]);
+
   const loadData = useCallback(
     async (mode: "initial" | "refresh" = "initial") => {
       if (loadInFlightRef.current) {
         return;
       }
       loadInFlightRef.current = true;
+      const requestedInstance = instance;
 
       if (mode === "initial") {
         setLoading(true);
@@ -235,6 +241,7 @@ export default function AdvancedJobsPanel() {
       setError(null);
       try {
         const params = new URLSearchParams({
+          instance,
           limit: "500",
           page: "1",
           longRunningMin: "30",
@@ -246,6 +253,9 @@ export default function AdvancedJobsPanel() {
           throw new Error(json.error ?? "No fue posible cargar los jobs.");
         }
 
+        if (instanceRef.current !== requestedInstance) {
+          return;
+        }
         setJobs(json.data);
       } catch (requestError) {
         const message =
@@ -276,7 +286,7 @@ export default function AdvancedJobsPanel() {
 
     const intervalId = window.setInterval(() => {
       runRefresh();
-    }, 30_000);
+    }, 60_000);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {

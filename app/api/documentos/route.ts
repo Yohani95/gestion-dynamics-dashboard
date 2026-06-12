@@ -36,6 +36,9 @@ export async function GET(request: NextRequest) {
   const tipoCol = request.nextUrl.searchParams.get("tipoCol")?.trim().toUpperCase() ?? "";
   const sii = request.nextUrl.searchParams.get("sii")?.trim() ?? "";
   const dynamics = request.nextUrl.searchParams.get("dynamics")?.trim() ?? "";
+  const soloDuplicados =
+    request.nextUrl.searchParams.get("duplicados")?.trim() === "1" ||
+    request.nextUrl.searchParams.get("soloDuplicados")?.trim() === "1";
   const page = Math.max(1, parseInt(request.nextUrl.searchParams.get("page") ?? "1", 10) || 1);
   const pageSize = Math.min(
     PAGE_SIZE_MAX,
@@ -44,6 +47,7 @@ export async function GET(request: NextRequest) {
 
   try {
     // Un documento = una fila: Estado_Envio viene de MIN(Estado) por Id_Documento
+    // duplicados=1: solo filas cuyo Nro_Impreso aparece más de una vez en el conjunto ya filtrado (misma fecha + filtros base).
     const sqlList = `
       WITH EstDyn AS (
         SELECT Id_Documento, MIN(Estado) AS Estado
@@ -55,7 +59,7 @@ export async function GET(request: NextRequest) {
         FROM Ges_EleDocSii WITH (NOLOCK)
         GROUP BY Id_Documento
       ),
-      U AS (
+      UBase AS (
         SELECT 'BLE' AS Tipo, Cab.Nro_Impreso AS Numero, Cab.Id_Boleta AS Id_Documento, Cab.Cod_Empresa, 
                CONVERT(VARCHAR(10), Cab.Fecha_Emision, 23) AS Fecha_Emision,
                 Sii.Estado AS Estado_SII, L.Estado AS Estado_Envio,
@@ -129,10 +133,9 @@ export async function GET(request: NextRequest) {
           AND (NULLIF(RTRIM(@empresa), '') IS NULL OR Cab.Cod_Empresa = CAST(NULLIF(RTRIM(@empresa), '') AS UNIQUEIDENTIFIER))
           AND (NULLIF(RTRIM(@numero), '') IS NULL OR Cab.Nro_Impreso = TRY_CAST(@numero AS INT) OR CONVERT(NVARCHAR(20), Cab.Nro_Impreso) LIKE '%' + @numero + '%')
       ),
-      U2 AS (
-        SELECT Tipo, Numero, Id_Documento, Cod_Empresa, Fecha_Emision, Estado_SII, Estado_Envio, Lineas_Gestion, Lineas_Dynamics_OK,
-               COUNT(*) OVER() AS Total
-        FROM U
+      UFiltrada AS (
+        SELECT Tipo, Numero, Id_Documento, Cod_Empresa, Fecha_Emision, Estado_SII, Estado_Envio, Lineas_Gestion, Lineas_Dynamics_OK
+        FROM UBase
         WHERE (NULLIF(RTRIM(@tipo), '') IS NULL OR Tipo = RTRIM(@tipo))
           AND (NULLIF(RTRIM(@tipoCol), '') IS NULL OR Tipo = RTRIM(@tipoCol))
           AND (
@@ -149,6 +152,18 @@ export async function GET(request: NextRequest) {
             OR (TRY_CAST(@dynamics AS INT) = 0 AND (Estado_Envio IS NULL OR Estado_Envio = 0))
             OR (TRY_CAST(@dynamics AS INT) <> 0 AND Estado_Envio = TRY_CAST(@dynamics AS INT))
           )
+      ),
+      DupNum AS (
+        SELECT Numero
+        FROM UFiltrada
+        GROUP BY Numero
+        HAVING COUNT(*) > 1
+      ),
+      U2 AS (
+        SELECT Tipo, Numero, Id_Documento, Cod_Empresa, Fecha_Emision, Estado_SII, Estado_Envio, Lineas_Gestion, Lineas_Dynamics_OK,
+               COUNT(*) OVER() AS Total
+        FROM UFiltrada u
+        WHERE (@soloDup = 0 OR EXISTS (SELECT 1 FROM DupNum d WHERE d.Numero = u.Numero))
       )
       SELECT Tipo, Numero, Id_Documento, Cod_Empresa, Fecha_Emision, Estado_SII, Estado_Envio, Lineas_Gestion, Lineas_Dynamics_OK, Total
       FROM U2
@@ -165,6 +180,7 @@ export async function GET(request: NextRequest) {
       tipoCol: tipoCol || "",
       sii: sii || "",
       dynamics: dynamics || "",
+      soloDup: soloDuplicados ? 1 : 0,
       page,
       pageSize,
     }, instance);

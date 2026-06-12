@@ -7,6 +7,8 @@ type Linea = {
   nroLinea: number;
   idDetalle: string;
   tipoMovimiento: string;
+  precioUnitario: number | null;
+  monto: number | null;
   estado: number | null;
   fecha: string | null;
   idDocumentoDynamics: string | null;
@@ -32,6 +34,15 @@ const estadoLabel: Record<number, string> = {
   3: "Registrado",
   4: "Medio de pago listo",
 };
+
+function formatMonto(monto: number | null | undefined) {
+  if (monto == null || Number.isNaN(monto)) return "—";
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "CLP",
+    maximumFractionDigits: 0,
+  }).format(monto);
+}
 
 export default function DetalleLineas({ idDocumento, tipo }: Props) {
   const { instance } = useInstance();
@@ -61,6 +72,8 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
       .finally(() => setLoading(false));
   }, [idDocumento, tipo, instance]);
 
+  const totalMonto = lineas.reduce((sum, l) => sum + (l.monto ?? 0), 0);
+
   if (loading) {
     return (
       <p className="text-sm text-slate-600">Cargando detalle por línea…</p>
@@ -83,7 +96,7 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-slate-200">
-      <table className="w-full min-w-[400px] text-left text-sm">
+      <table className="w-full min-w-[480px] text-left text-sm">
         <thead>
           <tr className="border-b border-slate-200 bg-slate-900 text-left">
             <th className="p-2.5 text-xs font-semibold uppercase tracking-wide text-slate-100">
@@ -91,6 +104,9 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
             </th>
             <th className="p-2.5 text-xs font-semibold uppercase tracking-wide text-slate-100">
               Tipo mov.
+            </th>
+            <th className="p-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-100">
+              Monto
             </th>
             <th className="p-2.5 text-xs font-semibold uppercase tracking-wide text-slate-100">
               Estado Dynamics
@@ -113,6 +129,9 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
                 {l.nroLinea}
               </td>
               <td className="p-2.5 text-slate-800">{l.tipoMovimiento}</td>
+              <td className="p-2.5 text-right font-semibold tabular-nums text-slate-900">
+                {formatMonto(l.monto)}
+              </td>
               <td className="p-2.5">
                 <span
                   className={`inline-flex rounded-full px-2 py-0.5 text-xs font-semibold ${estadoChip(
@@ -133,6 +152,17 @@ export default function DetalleLineas({ idDocumento, tipo }: Props) {
             </tr>
           ))}
         </tbody>
+        <tfoot>
+          <tr className="border-t border-slate-200 bg-slate-100">
+            <td colSpan={2} className="p-2.5 text-xs font-semibold uppercase tracking-wide text-slate-700">
+              Total
+            </td>
+            <td className="p-2.5 text-right font-bold tabular-nums text-slate-900">
+              {formatMonto(totalMonto)}
+            </td>
+            <td colSpan={3} />
+          </tr>
+        </tfoot>
       </table>
     </div>
   );

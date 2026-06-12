@@ -7,6 +7,8 @@ type LineaRow = {
   Nro_Linea: number;
   Id_Detalle: string;
   Tipo_Movimiento: string | null;
+  Precio_Unitario: number | null;
+  Total: number | null;
   Estado: number | null;
   Fecha: string | null;
   Id_Documento_Dynamics: string | null;
@@ -29,6 +31,7 @@ export async function GET(request: NextRequest) {
     if (tipo === "BLE") {
       sqlLineas = `
         SELECT Det.Nro_Linea, Det.Id_DetalleBoleta AS Id_Detalle, Det.Tipo_Movimiento,
+               Det.Precio_Unitario, Det.Total,
                E.Estado, E.Fecha, E.Id_Documento_Dynamics
         FROM Ges_BlvDetalle Det WITH (NOLOCK)
         LEFT JOIN Ges_EstadoEnvioDynamics E WITH (NOLOCK)
@@ -39,6 +42,7 @@ export async function GET(request: NextRequest) {
     } else if (tipo === "FCV") {
       sqlLineas = `
         SELECT Det.Nro_Linea, Det.Id_DetalleFactura AS Id_Detalle, CAST('' AS NVARCHAR(20)) AS Tipo_Movimiento,
+               Det.Precio_Unitario, Det.Total,
                E.Estado, E.Fecha, E.Id_Documento_Dynamics
         FROM Ges_FcvDetalle Det WITH (NOLOCK)
         LEFT JOIN Ges_EstadoEnvioDynamics E WITH (NOLOCK)
@@ -49,6 +53,7 @@ export async function GET(request: NextRequest) {
     } else {
       sqlLineas = `
         SELECT Det.Nro_Linea, Det.Id_DetalleNotaCredito AS Id_Detalle, CAST('' AS NVARCHAR(20)) AS Tipo_Movimiento,
+               Det.Precio_Unitario, Det.Total,
                E.Estado, E.Fecha, E.Id_Documento_Dynamics
         FROM Ges_NcvDetalle Det WITH (NOLOCK)
         LEFT JOIN Ges_EstadoEnvioDynamics E WITH (NOLOCK)
@@ -64,6 +69,8 @@ export async function GET(request: NextRequest) {
       nroLinea: r.Nro_Linea,
       idDetalle: r.Id_Detalle,
       tipoMovimiento: r.Tipo_Movimiento ?? "—",
+      precioUnitario: r.Precio_Unitario,
+      monto: r.Total,
       estado: r.Estado,
       fecha: r.Fecha,
       idDocumentoDynamics: r.Id_Documento_Dynamics,

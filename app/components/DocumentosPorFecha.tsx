@@ -6,10 +6,11 @@ import {
   Search, Calendar, Building2, FileText, Download,
   ChevronLeft, ChevronRight, Filter, List, ArrowUpRight,
   Printer, FileJson, FileSpreadsheet, AlertCircle, CheckCircle2,
-  Clock, Info, MoreHorizontal, RefreshCw
+  Clock, Info, MoreHorizontal, RefreshCw, FileUp, RotateCcw,
 } from "lucide-react";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
 import { useInstance, fetchWithInstance } from "./InstanceContext";
+import { useAdminSession } from "./AdminSessionContext";
 
 type DocItem = {
   tipo: string;
@@ -53,7 +54,17 @@ function getLineasSyncState(doc: DocItem) {
 }
 
 const PAGE_SIZES = [25, 50, 100, 200];
+const FOLDER_MASIVO_MAX_POR_LOTE = 40;
+const REPROCESO_MASIVO_MAX_POR_LOTE = 40;
 const STORAGE_KEY_BASE = "gestion-dash-lista";
+
+function fechaEmisionParaApi(fechaEmision: string): string {
+  const t = fechaEmision.trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  const d = new Date(t);
+  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  return t.slice(0, 10);
+}
 
 function getStorageKey(instance: string) {
   return `${STORAGE_KEY_BASE}-${instance}`;
@@ -64,13 +75,24 @@ function loadPersisted(instance: string) {
   try {
     const raw = sessionStorage.getItem(getStorageKey(instance));
     if (!raw) return null;
-    return JSON.parse(raw) as { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number };
+    return JSON.parse(raw) as {
+      fecha: string;
+      empresa: string;
+      tipo: string;
+      numero: string;
+      page: number;
+      pageSize: number;
+      soloDuplicados?: boolean;
+    };
   } catch {
     return null;
   }
 }
 
-function savePersisted(instance: string, p: { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number }) {
+function savePersisted(
+  instance: string,
+  p: { fecha: string; empresa: string; tipo: string; numero: string; page: number; pageSize: number; soloDuplicados: boolean },
+) {
   try {
     sessionStorage.setItem(getStorageKey(instance), JSON.stringify(p));
   } catch { }
@@ -78,6 +100,7 @@ function savePersisted(instance: string, p: { fecha: string; empresa: string; ti
 
 export default function DocumentosPorFecha({ onVerDetalle }: Props) {
   const { instance } = useInstance();
+  const { isAdmin, loading: sessionLoading } = useAdminSession();
   const [fecha, setFecha] = useState("");
   const [empresa, setEmpresa] = useState("");
   const [tipo, setTipo] = useState("");
@@ -95,6 +118,20 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
   const [filtroColTipo, setFiltroColTipo] = useState("");
   const [filtroColSII, setFiltroColSII] = useState("");
   const [filtroColDynamics, setFiltroColDynamics] = useState("");
+  const [filtroLineas, setFiltroLineas] = useState<"" | "diff" | "complete">("");
+  const [soloDuplicados, setSoloDuplicados] = useState(false);
+  const [timbrandoMasivo, setTimbrandoMasivo] = useState(false);
+  const [timbrarMasivoResult, setTimbrarMasivoResult] = useState<{
+    ok: boolean;
+    text: string;
+    fallos?: { numero: string; tipo: string; detalle: string }[];
+  } | null>(null);
+  const [reprocesandoMasivo, setReprocesandoMasivo] = useState(false);
+  const [reprocesoMasivoResult, setReprocesoMasivoResult] = useState<{
+    ok: boolean;
+    text: string;
+    fallos?: { numero: string; tipo: string; detalle: string }[];
+  } | null>(null);
 
   useEffect(() => {
     const p = loadPersisted(instance);
@@ -105,6 +142,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       setNumeroFilter(p.numero);
       setPage(p.page);
       setPageSize(p.pageSize);
+      if (typeof p.soloDuplicados === "boolean") setSoloDuplicados(p.soloDuplicados);
       return;
     }
     setEmpresa("");
@@ -112,6 +150,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
     setNumeroFilter("");
     setPage(1);
     setPageSize(50);
+    setSoloDuplicados(false);
   }, [instance]);
 
   useEffect(() => {
@@ -151,6 +190,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       if (filtroColTipo) params.set("tipoCol", filtroColTipo);
       if (filtroColSII !== "") params.set("sii", filtroColSII);
       if (filtroColDynamics !== "") params.set("dynamics", filtroColDynamics);
+      if (soloDuplicados) params.set("duplicados", "1");
       const res = await fetchWithInstance(`/api/documentos?${params.toString()}`, {}, instance);
       const json = await res.json();
       if (!res.ok) {
@@ -165,7 +205,15 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
       setTotalPaginas(json.totalPaginas ?? 1);
       setPage(pageNum);
       if (overridePageSize != null) setPageSize(overridePageSize);
-      savePersisted(instance, { fecha: f, empresa, tipo, numero: numeroFilter, page: pageNum, pageSize: size });
+      savePersisted(instance, {
+        fecha: f,
+        empresa,
+        tipo,
+        numero: numeroFilter,
+        page: pageNum,
+        pageSize: size,
+        soloDuplicados,
+      });
     } catch (err) {
       setError(String(err));
       setList([]);
@@ -194,13 +242,179 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
     }, 250);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroTabla, filtroColTipo, filtroColSII, filtroColDynamics]);
+  }, [filtroTabla, filtroColTipo, filtroColSII, filtroColDynamics, soloDuplicados]);
 
   const hoy = new Date().toISOString().slice(0, 10);
   const desde = total === 0 ? 0 : (page - 1) * pageSize + 1;
   const hasta = Math.min(page * pageSize, total);
 
-  const listaVisible = list ?? [];
+  const listaVisibleBase = list ?? [];
+  const listaVisible =
+    filtroLineas === ""
+      ? listaVisibleBase
+      : listaVisibleBase.filter((d) => {
+          const lineasState = getLineasSyncState(d);
+          if (!lineasState.hasLineas) return false;
+          return filtroLineas === "diff" ? !lineasState.complete : lineasState.complete;
+        });
+  const candidatosFolder = listaVisible.filter((d) => d.estadoSII === 1 && d.codEmpresa);
+  const candidatosReproceso = listaVisible.filter(
+    (d) => d.estadoSII === 2 && d.codEmpresa && d.idDocumento,
+  );
+
+  const folderMasivoDisabled =
+    timbrandoMasivo ||
+    reprocesandoMasivo ||
+    !fecha.trim() ||
+    list === null ||
+    candidatosFolder.length === 0;
+
+  const reprocesoMasivoDisabled =
+    reprocesandoMasivo ||
+    timbrandoMasivo ||
+    !fecha.trim() ||
+    list === null ||
+    candidatosReproceso.length === 0;
+
+  const folderMasivoTitle = !fecha.trim()
+    ? "Indique fecha de emisión"
+    : list === null
+      ? "Pulse «Consultar Documentos» para cargar la lista"
+      : candidatosFolder.length === 0
+        ? "Ningún documento de esta página está «Sin timbrar» (SII); use el filtro de columna SII o otra página"
+        : `Enviar a Folder hasta ${FOLDER_MASIVO_MAX_POR_LOTE} documentos sin timbrar de la página actual`;
+
+  const reprocesoMasivoTitle = !fecha.trim()
+    ? "Indique fecha de emisión"
+    : list === null
+      ? "Pulse «Consultar Documentos» para cargar la lista"
+      : candidatosReproceso.length === 0
+        ? "Ningún documento de esta página está «Timbrado» (SII); el reproceso a Dynamics exige timbre SII"
+        : `Reprocesar en Dynamics hasta ${REPROCESO_MASIVO_MAX_POR_LOTE} documentos timbrados de la página actual`;
+
+  async function handleTimbrarMasivoPagina() {
+    const slice = candidatosFolder.slice(0, FOLDER_MASIVO_MAX_POR_LOTE);
+    const items = slice.map((d) => ({
+      numero: String(d.numero),
+      tipo: d.tipo,
+      empresa: d.codEmpresa!,
+    }));
+    if (items.length === 0) return;
+    const omitidos = candidatosFolder.length - items.length;
+    const msgOmitidos =
+      omitidos > 0
+        ? ` (solo los primeros ${FOLDER_MASIVO_MAX_POR_LOTE} de ${candidatosFolder.length}; repita para el resto)`
+        : "";
+    if (
+      !window.confirm(
+        `Enviar ${items.length} documento(s) de esta página (sin timbrar SII) a Folder.${msgOmitidos} ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+    setTimbrandoMasivo(true);
+    setTimbrarMasivoResult(null);
+    setReprocesoMasivoResult(null);
+    try {
+      const res = await fetchWithInstance(
+        "/api/documento/enviar-sii",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ documentos: items }),
+        },
+        instance,
+      );
+      const json = await res.json();
+      if (json.masivo && Array.isArray(json.resultados)) {
+        const fallos = (json.resultados as { ok?: boolean; numero?: string; tipo?: string; mensaje?: string; error?: string }[])
+          .filter((r) => !r.ok)
+          .map((r) => ({
+            numero: String(r.numero ?? ""),
+            tipo: String(r.tipo ?? ""),
+            detalle: r.error ?? r.mensaje ?? "Error",
+          }));
+        setTimbrarMasivoResult({
+          ok: json.fallidos === 0,
+          text: `Página: ${json.total} enviados. Exitosos: ${json.exitosos}. Fallidos: ${json.fallidos}.`,
+          fallos: fallos.length ? fallos : undefined,
+        });
+      } else {
+        setTimbrarMasivoResult({
+          ok: json.ok === true,
+          text: json.error ?? json.mensaje ?? "Respuesta inesperada del servidor.",
+        });
+      }
+      await loadDocumentos(page);
+    } catch (e) {
+      setTimbrarMasivoResult({ ok: false, text: String(e) });
+    } finally {
+      setTimbrandoMasivo(false);
+    }
+  }
+
+  async function handleReprocesarMasivoPagina() {
+    const slice = candidatosReproceso.slice(0, REPROCESO_MASIVO_MAX_POR_LOTE);
+    const documentos = slice.map((d) => ({
+      idDocumento: d.idDocumento,
+      codEmpresa: d.codEmpresa!,
+      fecha: fechaEmisionParaApi(d.fechaEmision),
+      numero: String(d.numero),
+      tipo: d.tipo,
+    }));
+    if (documentos.length === 0) return;
+    const omitidos = candidatosReproceso.length - documentos.length;
+    const msgOmitidos =
+      omitidos > 0
+        ? ` (solo los primeros ${REPROCESO_MASIVO_MAX_POR_LOTE} de ${candidatosReproceso.length}; repita para el resto)`
+        : "";
+    if (
+      !window.confirm(
+        `Reprocesar ${documentos.length} documento(s) timbrados (SII) hacia Dynamics.${msgOmitidos} ¿Continuar?`,
+      )
+    ) {
+      return;
+    }
+    setReprocesandoMasivo(true);
+    setReprocesoMasivoResult(null);
+    setTimbrarMasivoResult(null);
+    try {
+      const res = await fetchWithInstance(
+        "/api/documento/reprocesar",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ documentos }),
+        },
+        instance,
+      );
+      const json = await res.json();
+      if (json.masivo && Array.isArray(json.resultados)) {
+        const fallos = (json.resultados as { ok?: boolean; numero?: string; tipo?: string; mensaje?: string; error?: string }[])
+          .filter((r) => !r.ok)
+          .map((r) => ({
+            numero: String(r.numero ?? ""),
+            tipo: String(r.tipo ?? ""),
+            detalle: r.error ?? r.mensaje ?? "Error",
+          }));
+        setReprocesoMasivoResult({
+          ok: json.fallidos === 0,
+          text: `Reproceso: ${json.total} ejecutados. Exitosos: ${json.exitosos}. Fallidos: ${json.fallidos}.`,
+          fallos: fallos.length ? fallos : undefined,
+        });
+      } else {
+        setReprocesoMasivoResult({
+          ok: json.ok === true,
+          text: json.error ?? json.mensaje ?? "Respuesta inesperada del servidor.",
+        });
+      }
+      await loadDocumentos(page);
+    } catch (e) {
+      setReprocesoMasivoResult({ ok: false, text: String(e) });
+    } finally {
+      setReprocesandoMasivo(false);
+    }
+  }
 
   return (
     <div className="w-full max-w-6xl mx-auto space-y-6 md:space-y-8 pb-10 px-4 md:px-0">
@@ -292,20 +506,115 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2 shadow-sm">
+              <span className="text-[10px] md:text-[11px] font-black text-zinc-500 uppercase tracking-widest">
+                Líneas
+              </span>
+              <select
+                value={filtroLineas}
+                onChange={(e) => setFiltroLineas(e.target.value as "" | "diff" | "complete")}
+                className="bg-transparent border-none text-[10px] md:text-[11px] p-0 font-black text-indigo-600 focus:ring-0 appearance-none cursor-pointer"
+                aria-label="Filtro de líneas"
+              >
+                <option value="">(TODOS)</option>
+                <option value="diff">Con diferencia</option>
+                <option value="complete">Completas</option>
+              </select>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-rose-200/80 bg-rose-50/80 px-3 py-2 shadow-sm select-none">
+              <input
+                type="checkbox"
+                checked={soloDuplicados}
+                onChange={(e) => setSoloDuplicados(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-rose-300 text-rose-600 focus:ring-rose-500/30"
+                aria-label="Solo documentos con número de folio repetido"
+              />
+              <span className="text-[10px] md:text-[11px] font-black text-rose-900">
+                Solo folios duplicados
+              </span>
+            </label>
+            {filtroLineas !== "" && (
+              <p className="text-[10px] md:text-xs font-semibold text-zinc-500">
+                Vista filtrada: {listaVisible.length}/{listaVisibleBase.length} en esta página
+              </p>
+            )}
+            {soloDuplicados && (
+              <p className="text-[10px] md:text-xs font-semibold text-rose-800/90 max-w-md leading-snug">
+                Mismo <strong>Nº impreso</strong> en más de un documento (tipos/empresas distintos o varias cabeceras). Combina con empresa/tipo/SII arriba.
+              </p>
+            )}
+          </div>
+
           <div className="pt-4 md:pt-6 border-t border-zinc-100 flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="hidden md:flex items-center gap-3">
               <div className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse" />
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Motor de búsqueda activo</span>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading || !fecha}
-              className="w-full md:w-auto px-10 h-12 md:h-14 bg-zinc-900 text-white text-xs md:text-sm font-bold rounded-xl md:rounded-[1.25rem] hover:bg-zinc-800 transition-all active:scale-95 disabled:opacity-30 flex items-center justify-center gap-3 shadow-xl shadow-zinc-200/50"
-            >
-              {loading ? <RefreshCw className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <Search className="w-4 h-4 md:w-5 md:h-5" />}
-              Consultar Documentos
-            </button>
+            <div className="flex w-full md:w-auto flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:justify-end">
+              {sessionLoading && (
+                <span className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-3 text-xs font-medium text-zinc-500">
+                  <RefreshCw className="h-4 w-4 animate-spin shrink-0" aria-hidden />
+                  Verificando sesión…
+                </span>
+              )}
+              {!sessionLoading && isAdmin && (
+                <button
+                  type="button"
+                  id="folder-masivo-btn"
+                  onClick={handleTimbrarMasivoPagina}
+                  disabled={folderMasivoDisabled}
+                  title={folderMasivoTitle}
+                  className="w-full sm:w-auto shrink-0 h-12 md:h-14 px-4 md:px-5 inline-flex items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] border-2 border-amber-400/80 bg-amber-50 text-amber-950 text-xs md:text-sm font-bold hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                >
+                  {timbrandoMasivo ? (
+                    <RefreshCw className="w-4 h-4 md:w-5 md:h-5 animate-spin shrink-0" aria-hidden />
+                  ) : (
+                    <FileUp className="w-4 h-4 md:w-5 md:h-5 shrink-0" aria-hidden />
+                  )}
+                  <span>Folder masivo</span>
+                  <span className="tabular-nums rounded-md bg-amber-200/80 px-1.5 py-0.5 text-[10px] md:text-xs">
+                    {candidatosFolder.length} sin timbrar
+                  </span>
+                </button>
+              )}
+              {!sessionLoading && isAdmin && (
+                <button
+                  type="button"
+                  id="reproceso-masivo-btn"
+                  onClick={handleReprocesarMasivoPagina}
+                  disabled={reprocesoMasivoDisabled}
+                  title={reprocesoMasivoTitle}
+                  className="w-full sm:w-auto shrink-0 h-12 md:h-14 px-4 md:px-5 inline-flex items-center justify-center gap-2 rounded-xl md:rounded-[1.25rem] border-2 border-indigo-400/80 bg-indigo-50 text-indigo-950 text-xs md:text-sm font-bold hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                >
+                  {reprocesandoMasivo ? (
+                    <RefreshCw className="w-4 h-4 md:w-5 md:h-5 animate-spin shrink-0" aria-hidden />
+                  ) : (
+                    <RotateCcw className="w-4 h-4 md:w-5 md:h-5 shrink-0" aria-hidden />
+                  )}
+                  <span>Reprocesar masivo</span>
+                  <span className="tabular-nums rounded-md bg-indigo-200/80 px-1.5 py-0.5 text-[10px] md:text-xs">
+                    {candidatosReproceso.length} timbrados
+                  </span>
+                </button>
+              )}
+              {!sessionLoading && !isAdmin && (
+                <p className="w-full sm:max-w-md rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-2 text-left text-[10px] md:text-xs leading-snug text-zinc-600">
+                  <strong className="text-zinc-800">Folder masivo</strong> solo con sesión de administrador.
+                  Use arriba a la derecha <strong className="text-zinc-800">«Iniciar sesión admin»</strong> o cierre y vuelva a entrar si ya aparece <strong className="text-zinc-800">Admin</strong>.
+                  Debe estar en <strong className="text-zinc-800">Ventas (Dynamics)</strong> → pestaña <strong className="text-zinc-800">Historial por Fecha</strong> (no en Inicio).
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={loading || !fecha}
+                className="w-full md:w-auto px-10 h-12 md:h-14 bg-zinc-900 text-white text-xs md:text-sm font-bold rounded-xl md:rounded-[1.25rem] hover:bg-zinc-800 transition-all active:scale-95 disabled:opacity-30 inline-flex items-center justify-center gap-3 shadow-xl shadow-zinc-200/50"
+              >
+                {loading ? <RefreshCw className="w-4 h-4 md:w-5 md:h-5 animate-spin" /> : <Search className="w-4 h-4 md:w-5 md:h-5" />}
+                Consultar Documentos
+              </button>
+            </div>
           </div>
         </form>
       </motion.div>
@@ -356,7 +665,41 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
 
                 <div className="h-6 md:h-8 w-px bg-zinc-200 mx-1 hidden sm:block" />
 
-                <div className="flex items-center gap-1.5 md:gap-2">
+                <div className="flex items-center gap-1.5 md:gap-2 flex-wrap">
+                  {!sessionLoading && isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleTimbrarMasivoPagina}
+                      disabled={timbrandoMasivo || reprocesandoMasivo || candidatosFolder.length === 0}
+                      className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-amber-200 bg-amber-50 text-amber-900 text-[10px] md:text-xs font-bold hover:bg-amber-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title={folderMasivoTitle}
+                    >
+                      {timbrandoMasivo ? (
+                        <RefreshCw className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin shrink-0" />
+                      ) : (
+                        <FileUp className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                      )}
+                      <span className="hidden sm:inline">Folder</span>
+                      <span className="tabular-nums">({candidatosFolder.length})</span>
+                    </button>
+                  )}
+                  {!sessionLoading && isAdmin && (
+                    <button
+                      type="button"
+                      onClick={handleReprocesarMasivoPagina}
+                      disabled={reprocesoMasivoDisabled}
+                      className="flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3 py-2 md:py-2.5 rounded-lg md:rounded-xl border border-indigo-200 bg-indigo-50 text-indigo-900 text-[10px] md:text-xs font-bold hover:bg-indigo-100 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title={reprocesoMasivoTitle}
+                    >
+                      {reprocesandoMasivo ? (
+                        <RefreshCw className="w-3.5 h-3.5 md:w-4 md:h-4 animate-spin shrink-0" />
+                      ) : (
+                        <RotateCcw className="w-3.5 h-3.5 md:w-4 md:h-4 shrink-0" />
+                      )}
+                      <span className="hidden sm:inline">Repr.</span>
+                      <span className="tabular-nums">({candidatosReproceso.length})</span>
+                    </button>
+                  )}
                   <button
                     onClick={async () => {
                       const headers = ["Tipo", "Número", "Emisión", "SII", "Dynamics", "Líneas Total/Sync"];
@@ -381,6 +724,47 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                 </div>
               </div>
             </div>
+
+            {timbrarMasivoResult && (
+              <div
+                className={`mx-5 md:mx-8 mt-4 mb-2 rounded-xl border px-4 py-3 text-xs md:text-sm font-semibold ${timbrarMasivoResult.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-rose-200 bg-rose-50 text-rose-900"
+                  }`}
+              >
+                <p className="font-bold text-[10px] uppercase tracking-wide text-zinc-500">Folder masivo</p>
+                <p className="mt-1">{timbrarMasivoResult.text}</p>
+                {timbrarMasivoResult.fallos && timbrarMasivoResult.fallos.length > 0 && (
+                  <ul className="mt-2 max-h-32 overflow-y-auto space-y-1 font-mono text-[10px] md:text-xs font-normal list-disc pl-4">
+                    {timbrarMasivoResult.fallos.map((f, i) => (
+                      <li key={`${f.tipo}-${f.numero}-${i}`}>
+                        {f.tipo} #{f.numero}: {f.detalle}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+            {reprocesoMasivoResult && (
+              <div
+                className={`mx-5 md:mx-8 mt-4 mb-2 rounded-xl border px-4 py-3 text-xs md:text-sm font-semibold ${reprocesoMasivoResult.ok
+                  ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                  : "border-rose-200 bg-rose-50 text-rose-900"
+                  }`}
+              >
+                <p className="font-bold text-[10px] uppercase tracking-wide text-zinc-500">Reproceso masivo (Dynamics)</p>
+                <p className="mt-1">{reprocesoMasivoResult.text}</p>
+                {reprocesoMasivoResult.fallos && reprocesoMasivoResult.fallos.length > 0 && (
+                  <ul className="mt-2 max-h-32 overflow-y-auto space-y-1 font-mono text-[10px] md:text-xs font-normal list-disc pl-4">
+                    {reprocesoMasivoResult.fallos.map((f, i) => (
+                      <li key={`repro-${f.tipo}-${f.numero}-${i}`}>
+                        {f.tipo} #{f.numero}: {f.detalle}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
 
             {/* Mobile View: Cards */}
             <div className="block lg:hidden divide-y divide-zinc-100">

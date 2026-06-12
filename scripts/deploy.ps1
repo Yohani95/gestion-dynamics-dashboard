@@ -2,7 +2,7 @@
 # Ejecuta la app Next.js en modo producción
 
 param(
-    [int]$Port = 3000
+    [int]$Port = 3100
 )
 
 $AppDir = Split-Path -Parent $PSScriptRoot

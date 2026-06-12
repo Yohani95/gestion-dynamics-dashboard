@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { evaluarIntegridadDesdeDocumento } from "@/lib/cargarIntegridadDocumento";
 
 export const dynamic = "force-dynamic";
 
@@ -245,6 +246,27 @@ export async function GET(request: NextRequest) {
       errores ?? []
     );
 
+    const erroresIntegridad = (errores ?? []).map((e) => ({
+      mensaje: e.Mensaje,
+      error: e.Error,
+    }));
+
+    const integridad = doc
+      ? await evaluarIntegridadDesdeDocumento(
+          {
+            tipo: doc.Tipo,
+            idDocumento: doc.Id_Documento,
+            estadoSII: doc.Estado_SII,
+            estadoEnvio,
+            idDocumentoDynamics,
+            lineasGestion: doc.Lineas_Gestion,
+            lineasDynamicsOk: doc.Lineas_Dynamics_OK,
+          },
+          erroresIntegridad,
+          instance,
+        )
+      : null;
+
     return NextResponse.json({
       numero: numero,
       documento: doc
@@ -261,6 +283,8 @@ export async function GET(request: NextRequest) {
           lineasDynamicsOk: doc.Lineas_Dynamics_OK,
         }
         : null,
+      integridad,
+      erroresDynamics: erroresIntegridad.slice(0, 8),
       errores: (errores ?? []).map((e) => ({
         fecha: e.Fecha,
         mensaje: e.Mensaje,

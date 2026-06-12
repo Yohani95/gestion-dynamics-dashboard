@@ -122,7 +122,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       void loadAdvancedAlerts();
       const intervalId = window.setInterval(() => {
         void loadAdvancedAlerts();
-      }, 30_000);
+      }, 60_000);
 
       const onVisibilityChange = () => {
         if (document.visibilityState === "visible") {

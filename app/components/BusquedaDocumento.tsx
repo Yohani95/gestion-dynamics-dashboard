@@ -8,43 +8,54 @@ import {
   ExternalLink, FileSearch, ListChecks, XCircle, Printer
 } from "lucide-react";
 import DetalleLineas from "./DetalleLineas";
+import IntegridadDynamicsPanel from "./IntegridadDynamicsPanel";
 import { useInstance, fetchWithInstance } from "./InstanceContext";
 import { useAdminSession } from "./AdminSessionContext";
 import { formatDateLocal } from "@/lib/formatUtils";
 import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
 
-const NUMERO_STORAGE_KEY = "gestion-dash-documento-numero";
-const RESULT_STORAGE_KEY = "gestion-dash-documento-result";
+const NUMERO_STORAGE_BASE = "gestion-dash-documento-numero";
+const RESULT_STORAGE_BASE = "gestion-dash-documento-result";
 
-function loadSavedNumero(): string {
+function numeroStorageKey(instance: string) {
+  return `${NUMERO_STORAGE_BASE}-${instance}`;
+}
+
+function resultStorageKey(instance: string) {
+  return `${RESULT_STORAGE_BASE}-${instance}`;
+}
+
+function loadSavedNumero(instance: string): string {
   if (typeof window === "undefined") return "";
   try {
-    return sessionStorage.getItem(NUMERO_STORAGE_KEY) ?? "";
+    return sessionStorage.getItem(numeroStorageKey(instance)) ?? "";
   } catch {
     return "";
   }
 }
 
-function saveNumero(value: string) {
+function saveNumero(value: string, instance: string) {
   try {
-    sessionStorage.setItem(NUMERO_STORAGE_KEY, value);
+    sessionStorage.setItem(numeroStorageKey(instance), value);
   } catch { }
 }
 
-function loadSavedResult(): ApiResponse | null {
+function loadSavedResult(instance: string, numero: string): ApiResponse | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = sessionStorage.getItem(RESULT_STORAGE_KEY);
+    const raw = sessionStorage.getItem(resultStorageKey(instance));
     if (!raw) return null;
-    return JSON.parse(raw) as ApiResponse;
+    const parsed = JSON.parse(raw) as ApiResponse;
+    if (parsed.numero?.trim() !== numero.trim()) return null;
+    return parsed;
   } catch {
     return null;
   }
 }
 
-function saveResult(value: ApiResponse) {
+function saveResult(value: ApiResponse, instance: string) {
   try {
-    sessionStorage.setItem(RESULT_STORAGE_KEY, JSON.stringify(value));
+    sessionStorage.setItem(resultStorageKey(instance), JSON.stringify(value));
   } catch { }
 }
 
@@ -127,7 +138,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
   const refreshDocumento = async (numeroBusqueda: string, filters?: DocumentoLookupFilters) => {
     const { json } = await fetchDocumento(numeroBusqueda, filters);
     setData(json);
-    saveResult(json);
+    saveResult(json, instance);
     return json;
   };
 
@@ -145,31 +156,33 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
   }, [instance]);
 
   useEffect(() => {
-    const savedNum = loadSavedNumero();
+    const savedNum = loadSavedNumero(instance);
     setNumero(savedNum);
-    const saved = loadSavedResult();
-    if (saved && saved.numero && saved.numero === savedNum.trim()) {
-      setData(saved);
-    }
-  }, []);
+    setEmpresa("");
+    setTipo("");
+    setData(savedNum ? loadSavedResult(instance, savedNum) : null);
+    setReprocesoMsg(null);
+    setAccionMsg(null);
+    setLoading(false);
+  }, [instance]);
 
   useEffect(() => {
     if (!numeroParaCargar?.trim()) return;
     const n = numeroParaCargar.trim();
     setNumero(n);
-    saveNumero(n);
+    saveNumero(n, instance);
     setData(null);
     setLoading(true);
     setReprocesoMsg(null);
     fetchDocumento(n, { empresa, tipo })
       .then(({ json }) => {
         setData(json);
-        saveResult(json);
+        saveResult(json, instance);
       })
       .catch(() => {
         const fallback: ApiResponse = { numero: n, documento: null, errores: [], diagnostico: "Error de red.", error: "Error de red" };
         setData(fallback);
-        saveResult(fallback);
+        saveResult(fallback, instance);
       })
       .finally(() => {
         setLoading(false);
@@ -181,7 +194,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
     e.preventDefault();
     const n = numero.trim();
     if (!n) return;
-    saveNumero(n);
+    saveNumero(n, instance);
     setLoading(true);
     setData(null);
     setReprocesoMsg(null);
@@ -189,7 +202,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
     try {
       const { res, json } = await fetchDocumento(n, { empresa, tipo });
       setData(json);
-      saveResult(json);
+      saveResult(json, instance);
       if (!res.ok && json.error) {
         console.error("[API]", json.error, json.stack ?? "");
       }
@@ -554,7 +567,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
                       setLoading(true);
                       const numeroSeleccionado = String(doc.numero);
                       setNumero(numeroSeleccionado);
-                      saveNumero(numeroSeleccionado);
+                      saveNumero(numeroSeleccionado, instance);
                       setTipo(doc.tipo);
                       setEmpresa(doc.codEmpresa);
                       refreshDocumento(numeroSeleccionado, { tipo: doc.tipo, empresa: doc.codEmpresa })
@@ -685,6 +698,14 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
                     Validación por línea (Total/Sync Dynamics).
                   </div>
                 </div>
+              </div>
+
+              <div className="mt-8">
+                <IntegridadDynamicsPanel
+                  numero={String(data.documento.numero)}
+                  tipo={data.documento.tipo}
+                  empresa={data.documento.codEmpresa}
+                />
               </div>
 
               {/* Detalle de Líneas - Modernizado */}

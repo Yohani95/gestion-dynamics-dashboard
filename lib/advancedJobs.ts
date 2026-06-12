@@ -84,9 +84,9 @@ type SqlJobRow = {
 };
 
 const ADVANCED_JOBS_CACHE_TTL_MS = (() => {
-  const parsed = Number.parseInt(process.env.ADVANCED_JOBS_CACHE_TTL_MS ?? "15000", 10);
-  if (Number.isNaN(parsed)) return 15_000;
-  return Math.min(Math.max(parsed, 1_000), 120_000);
+  const parsed = Number.parseInt(process.env.ADVANCED_JOBS_CACHE_TTL_MS ?? "60000", 10);
+  if (Number.isNaN(parsed)) return 60_000;
+  return Math.min(Math.max(parsed, 5_000), 300_000);
 })();
 
 const advancedJobsCache = new Map<string, AdvancedJobsCacheEntry>();
