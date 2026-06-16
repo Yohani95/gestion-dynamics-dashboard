@@ -1,15 +1,24 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query } from "@/lib/db";
+import { normalizarCategoria, agruparFilasEstado2 } from "@/lib/resumenCategorias";
+import {
+  buildResumenEstadosSqlEstado2,
+  buildResumenEstadosSqlRapido,
+} from "@/lib/resumenEstadosSql";
 
 export const dynamic = "force-dynamic";
 
-type ResumenRow = {
+type ResumenRowRapido = {
   Descripcion: string;
   Fecha: string;
   Cod_Empresa: string;
   Tipo: string;
   Estado: number;
   Cantidad: number;
+};
+
+type ResumenRowEstado2 = ResumenRowRapido & {
+  Categoria: string;
 };
 
 const ESTADOS_VALIDOS = [0, 1, 2, 3, 4];
@@ -19,7 +28,6 @@ export async function GET(request: NextRequest) {
   let fechaDesde = request.nextUrl.searchParams.get("fechaDesde")?.trim() ?? "";
   const fechaHastaParam = request.nextUrl.searchParams.get("fechaHasta")?.trim() ?? "";
 
-  // Asegurar YYYY-MM-DD: si ya viene en ese formato se usa tal cual (evita cambios por zona horaria)
   if (fechaDesde && !/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde)) {
     const d = new Date(fechaDesde + "T12:00:00");
     if (!Number.isNaN(d.getTime())) {
@@ -29,7 +37,7 @@ export async function GET(request: NextRequest) {
   if (!fechaDesde || !/^\d{4}-\d{2}-\d{2}$/.test(fechaDesde)) {
     return NextResponse.json(
       { error: "Falta o formato incorrecto: fechaDesde (YYYY-MM-DD)" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -50,100 +58,94 @@ export async function GET(request: NextRequest) {
   if (estadosUnicos.length === 0) {
     return NextResponse.json(
       { error: "Indica al menos un estado (0-4)." },
-      { status: 400 }
+      { status: 400 },
     );
   }
-  const estadosStr = estadosUnicos.join(",");
 
   const empresa = request.nextUrl.searchParams.get("empresa")?.trim() ?? "";
+  const subcategorias = request.nextUrl.searchParams.get("subcategorias") === "1";
+  const otrosEstados = estadosUnicos.filter((e) => e !== 2);
+  const incluyeEstado2 = estadosUnicos.includes(2);
 
   try {
     const filtroHasta =
       "AND (NULLIF(RTRIM(@fechaHasta), '') IS NULL OR CONVERT(DATE, Cab.Fecha_Emision) <= CAST(@fechaHasta AS DATE))";
-    const sqlResumen = `
-      WITH EstDyn AS (
-        SELECT Id_Documento, MIN(Estado) AS Estado
-        FROM Ges_EstadoEnvioDynamics WITH (NOLOCK)
-        GROUP BY Id_Documento
-      )
-      SELECT Descripcion, Fecha, Cod_Empresa, Tipo, Estado, Cantidad FROM (
-        SELECT emp.Descripcion,
-               CONVERT(VARCHAR(10), CONVERT(DATE, Cab.Fecha_Emision), 23) AS Fecha,
-               Cab.Cod_Empresa,
-               'BLE' AS Tipo,
-               ISNULL(L.Estado, 0) AS Estado,
-               COUNT(*) AS Cantidad
-        FROM Ges_BlvCabecera Cab WITH (NOLOCK)
-        INNER JOIN Ges_Empresas Emp WITH (NOLOCK) ON Emp.Cod_Empresa = Cab.Cod_Empresa
-        LEFT JOIN EstDyn L ON L.Id_Documento = Cab.Id_Boleta
-        WHERE CONVERT(DATE, Cab.Fecha_Emision) >= CAST(@fechaDesde AS DATE)
-          ${filtroHasta}
-          AND (NULLIF(RTRIM(@empresa), '') IS NULL OR Cab.Cod_Empresa = CAST(NULLIF(RTRIM(@empresa), '') AS UNIQUEIDENTIFIER))
-          AND CHARINDEX(',' + CAST(ISNULL(L.Estado, 0) AS VARCHAR(5)) + ',', ',' + @estados + ',') > 0
-        GROUP BY ISNULL(L.Estado, 0),
-                 emp.Descripcion,
-                 CONVERT(VARCHAR(10), CONVERT(DATE, Cab.Fecha_Emision), 23),
-                 Cab.Cod_Empresa
-        UNION ALL
-        SELECT emp.Descripcion,
-               CONVERT(VARCHAR(10), CONVERT(DATE, Cab.Fecha_Emision), 23) AS Fecha,
-               Cab.Cod_Empresa,
-               'FCV' AS Tipo,
-               ISNULL(L.Estado, 0) AS Estado,
-               COUNT(*) AS Cantidad
-        FROM Ges_FcvCabecera Cab WITH (NOLOCK)
-        INNER JOIN Ges_Empresas Emp WITH (NOLOCK) ON Emp.Cod_Empresa = Cab.Cod_Empresa
-        LEFT JOIN EstDyn L ON L.Id_Documento = Cab.Id_Factura
-        WHERE CONVERT(DATE, Cab.Fecha_Emision) >= CAST(@fechaDesde AS DATE)
-          ${filtroHasta}
-          AND (NULLIF(RTRIM(@empresa), '') IS NULL OR Cab.Cod_Empresa = CAST(NULLIF(RTRIM(@empresa), '') AS UNIQUEIDENTIFIER))
-          AND CHARINDEX(',' + CAST(ISNULL(L.Estado, 0) AS VARCHAR(5)) + ',', ',' + @estados + ',') > 0
-        GROUP BY ISNULL(L.Estado, 0),
-                 emp.Descripcion,
-                 CONVERT(VARCHAR(10), CONVERT(DATE, Cab.Fecha_Emision), 23),
-                 Cab.Cod_Empresa
-        UNION ALL
-        SELECT emp.Descripcion,
-               CONVERT(VARCHAR(10), CONVERT(DATE, Cab.Fecha_Emision), 23) AS Fecha,
-               Cab.Cod_Empresa,
-               'NCV' AS Tipo,
-               ISNULL(L.Estado, 0) AS Estado,
-               COUNT(*) AS Cantidad
-        FROM Ges_NcvCabecera Cab WITH (NOLOCK)
-        INNER JOIN Ges_Empresas Emp WITH (NOLOCK) ON Emp.Cod_Empresa = Cab.Cod_Empresa
-        LEFT JOIN EstDyn L ON L.Id_Documento = Cab.Id_NotaCredito
-        WHERE CONVERT(DATE, Cab.Fecha_Emision) >= CAST(@fechaDesde AS DATE)
-          ${filtroHasta}
-          AND (NULLIF(RTRIM(@empresa), '') IS NULL OR Cab.Cod_Empresa = CAST(NULLIF(RTRIM(@empresa), '') AS UNIQUEIDENTIFIER))
-          AND CHARINDEX(',' + CAST(ISNULL(L.Estado, 0) AS VARCHAR(5)) + ',', ',' + @estados + ',') > 0
-        GROUP BY ISNULL(L.Estado, 0),
-                 emp.Descripcion,
-                 CONVERT(VARCHAR(10), CONVERT(DATE, Cab.Fecha_Emision), 23),
-                 Cab.Cod_Empresa
-      ) U
-      ORDER BY Descripcion, Fecha, Tipo, Estado
-    `;
 
-    const rows = await query<ResumenRow[]>(sqlResumen, {
+    const baseParams = {
       fechaDesde,
       fechaHasta: fechaHasta || "",
-      estados: estadosStr,
       empresa,
-    }, instance);
+    };
 
-    const resumen = (rows ?? []).map((r) => ({
+    if (!incluyeEstado2) {
+      const rows = await query<ResumenRowRapido[]>(
+        buildResumenEstadosSqlRapido(filtroHasta),
+        { ...baseParams, estados: estadosUnicos.join(",") },
+        instance,
+      );
+
+      const resumen = (rows ?? []).map((r) => ({
+        descripcion: r.Descripcion,
+        fecha: r.Fecha,
+        codEmpresa: r.Cod_Empresa,
+        tipo: r.Tipo,
+        estado: r.Estado,
+        categoria: normalizarCategoria({ estado: r.Estado }),
+        cantidad: r.Cantidad,
+      }));
+
+      return NextResponse.json({
+        fechaDesde,
+        fechaHasta: fechaHasta || null,
+        estados: estadosUnicos,
+        subcategorias: false,
+        resumen,
+      });
+    }
+
+    const [rapidoRows, estado2Rows] = await Promise.all([
+      otrosEstados.length > 0
+        ? query<ResumenRowRapido[]>(
+            buildResumenEstadosSqlRapido(filtroHasta),
+            { ...baseParams, estados: otrosEstados.join(",") },
+            instance,
+          )
+        : Promise.resolve([] as ResumenRowRapido[]),
+      query<ResumenRowEstado2[]>(
+        buildResumenEstadosSqlEstado2(filtroHasta),
+        baseParams,
+        instance,
+      ),
+    ]);
+
+    const estado2Mapeado = (estado2Rows ?? []).map((r) => ({
       descripcion: r.Descripcion,
       fecha: r.Fecha,
       codEmpresa: r.Cod_Empresa,
       tipo: r.Tipo,
-      estado: r.Estado,
+      estado: 2 as const,
+      categoria: r.Categoria,
       cantidad: r.Cantidad,
     }));
+
+    const resumen = [
+      ...(rapidoRows ?? []).map((r) => ({
+        descripcion: r.Descripcion,
+        fecha: r.Fecha,
+        codEmpresa: r.Cod_Empresa,
+        tipo: r.Tipo,
+        estado: r.Estado,
+        categoria: normalizarCategoria({ estado: r.Estado }),
+        cantidad: r.Cantidad,
+      })),
+      ...(subcategorias ? estado2Mapeado : agruparFilasEstado2(estado2Mapeado)),
+    ];
 
     return NextResponse.json({
       fechaDesde,
       fechaHasta: fechaHasta || null,
       estados: estadosUnicos,
+      subcategorias: subcategorias && incluyeEstado2,
       resumen,
     });
   } catch (e) {

@@ -27,7 +27,7 @@ type DocItem = {
 type Empresa = { codEmpresa: string; descripcion: string };
 
 type Props = {
-  onVerDetalle: (numero: number) => void;
+  onVerDetalle: (numero: number, tipo?: string, empresa?: string) => void;
 };
 
 const getSiiLabel = (e: number | null) =>
@@ -787,7 +787,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: i * 0.01 }}
                       className="p-5 space-y-4 active:bg-zinc-50 transition-colors"
-                      onClick={() => onVerDetalle(d.numero)}
+                      onClick={() => onVerDetalle(d.numero, d.tipo, d.codEmpresa)}
                     >
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-3">
@@ -959,7 +959,7 @@ export default function DocumentosPorFecha({ onVerDetalle }: Props) {
                           </td>
                           <td className="px-8 py-4 text-right">
                             <button
-                              onClick={() => onVerDetalle(d.numero)}
+                              onClick={() => onVerDetalle(d.numero, d.tipo, d.codEmpresa)}
                               className="p-2 text-zinc-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-all active:scale-90 border border-transparent hover:border-zinc-200 hover:shadow-sm"
                             >
                               <ArrowUpRight className="w-5 h-5" />

@@ -104,7 +104,7 @@ type DocumentoLookupFilters = {
 };
 
 export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }: BusquedaDocumentoProps) {
-  const { instance } = useInstance();
+  const { instance, instanceName } = useInstance();
   const { isAdmin } = useAdminSession();
   const [numero, setNumero] = useState("");
   const [loading, setLoading] = useState(false);
@@ -156,6 +156,12 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
   }, [instance]);
 
   useEffect(() => {
+    if (!empresa || empresas.length === 0) return;
+    const exists = empresas.some((e) => e.codEmpresa.toLowerCase() === empresa.toLowerCase());
+    if (!exists) setEmpresa("");
+  }, [empresas, empresa]);
+
+  useEffect(() => {
     const savedNum = loadSavedNumero(instance);
     setNumero(savedNum);
     setEmpresa("");
@@ -174,7 +180,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
     setData(null);
     setLoading(true);
     setReprocesoMsg(null);
-    fetchDocumento(n, { empresa, tipo })
+    fetchDocumento(n)
       .then(({ json }) => {
         setData(json);
         saveResult(json, instance);
@@ -188,7 +194,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
         setLoading(false);
         onNumeroCargado?.();
       });
-  }, [numeroParaCargar, onNumeroCargado, instance, empresa, tipo]);
+  }, [numeroParaCargar, onNumeroCargado, instance]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -392,8 +398,14 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
 
   const lineasSyncState = data?.documento ? getLineasSyncState(data.documento) : null;
 
+  const empresaLabel = (codEmpresa: string) =>
+    empresas.find((e) => e.codEmpresa.toLowerCase() === codEmpresa.toLowerCase())?.descripcion ?? codEmpresa;
+
   return (
     <div className="w-full max-w-3xl mx-auto">
+      <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-indigo-600">
+        Consultando en: {instanceName}
+      </p>
       <form onSubmit={handleSubmit} className="relative group mb-8">
         <div className="flex flex-col gap-3 bg-white p-3 border border-zinc-200 rounded-[2rem] shadow-sm hover:shadow-md transition-all">
 
@@ -592,7 +604,7 @@ export default function BusquedaDocumento({ numeroParaCargar, onNumeroCargado }:
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-zinc-500 font-medium">
-                          <span>Entidad: <span className="font-mono text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">{doc.codEmpresa}</span></span>
+                          <span>Entidad: <span className="font-mono text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100">{empresaLabel(doc.codEmpresa)}</span></span>
                           <span>•</span>
                           <span>Emitido: {doc.fechaEmision.split("T")[0]}</span>
                         </div>

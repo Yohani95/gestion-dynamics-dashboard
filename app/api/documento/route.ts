@@ -25,6 +25,32 @@ type ErrorRow = {
   Error: string;
 };
 
+function collapseUniqueDocs(rows: DocRow[] | undefined): DocRow[] {
+  const uniqueDocsMap = new Map<string, DocRow>();
+  if (rows) {
+    for (const d of rows) {
+      const key = `${d.Tipo}_${d.Cod_Empresa}_${d.Numero}`;
+      if (!uniqueDocsMap.has(key)) {
+        uniqueDocsMap.set(key, d);
+      }
+    }
+  }
+  return Array.from(uniqueDocsMap.values());
+}
+
+function mapDocsPosibles(docs: DocRow[]) {
+  return docs.map((d) => ({
+    tipo: d.Tipo,
+    numero: d.Numero,
+    idDocumento: d.Id_Documento,
+    codEmpresa: d.Cod_Empresa,
+    fechaEmision: d.Fecha_Emision,
+    estadoSII: d.Estado_SII,
+    lineasGestion: d.Lineas_Gestion,
+    lineasDynamicsOk: d.Lineas_Dynamics_OK,
+  }));
+}
+
 function buildDiagnostico(
   doc: DocRow | null,
   errores: ErrorRow[]
@@ -167,16 +193,7 @@ export async function GET(request: NextRequest) {
 
     // Colapsar documentos que tengan la misma combinación Tipo_Empresa_Numero
     // (Por si la BD tiene data basura triplicada. Tomamos el primero porque el SQL ordena por mayor avance en Dynamics).
-    const uniqueDocsMap = new Map<string, DocRow>();
-    if (docsRaw) {
-      for (const d of docsRaw) {
-        const key = `${d.Tipo}_${d.Cod_Empresa}_${d.Numero}`;
-        if (!uniqueDocsMap.has(key)) {
-          uniqueDocsMap.set(key, d);
-        }
-      }
-    }
-    const docs = Array.from(uniqueDocsMap.values());
+    const docs = collapseUniqueDocs(docsRaw);
 
     // Si hay más de 1 combinacion unica, y el usuario no mandó todos los filtros, pedimos desambiguar.
     const hasAmbiguity = docs.length > 1 && (!tipoParam || !empresaParam);
@@ -184,20 +201,33 @@ export async function GET(request: NextRequest) {
     if (hasAmbiguity) {
       return NextResponse.json({
         numero: numero,
-        documentosPosibles: docs.map((d) => ({
-          tipo: d.Tipo,
-          numero: d.Numero,
-          idDocumento: d.Id_Documento,
-          codEmpresa: d.Cod_Empresa,
-          fechaEmision: d.Fecha_Emision,
-          estadoSII: d.Estado_SII,
-          lineasGestion: d.Lineas_Gestion,
-          lineasDynamicsOk: d.Lineas_Dynamics_OK,
-        })),
+        documentosPosibles: mapDocsPosibles(docs),
         documento: null,
         errores: [],
         diagnostico: `Se encontraron ${docs.length} documentos con el número ${numero}. Por favor, selecciona la entidad o tipo correctos.`,
       });
+    }
+
+    // Filtros de entidad/tipo activos pero sin coincidencia: buscar sin filtros para orientar al usuario.
+    if (docs.length === 0 && (tipoParam || empresaParam)) {
+      const docsSinFiltro = collapseUniqueDocs(
+        await query<DocRow[]>(sqlDoc, { numero, tipo: null, empresa: null }, instance),
+      );
+      if (docsSinFiltro.length > 0) {
+        const filtros: string[] = [];
+        if (tipoParam) filtros.push(`tipo ${tipoParam}`);
+        if (empresaParam) filtros.push("entidad seleccionada");
+        return NextResponse.json({
+          numero,
+          documentosPosibles: mapDocsPosibles(docsSinFiltro),
+          documento: null,
+          errores: [],
+          diagnostico:
+            docsSinFiltro.length === 1
+              ? `El folio ${numero} existe, pero no coincide con ${filtros.join(" y ")}. Selecciona el documento correcto abajo o deja «Todas las Entidades».`
+              : `El folio ${numero} existe en ${docsSinFiltro.length} combinaciones, pero ninguna coincide con ${filtros.join(" y ")}. Selecciona la entidad/tipo correctos o usa «Todas las Entidades».`,
+        });
+      }
     }
 
     const doc = docs.length > 0 ? docs[0] : null;

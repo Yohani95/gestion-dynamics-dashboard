@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getPool, sql } from "@/lib/db";
 import { getAdminSessionFromRequest } from "@/lib/auth";
 import { insertAdvancedAuditSafe } from "@/lib/advancedControl";
+import { prepareFolderJsonPayload } from "@/lib/folderJsonRepair";
 import { getInstanceMeta, resolveInstanceId, type InstanceId } from "@/lib/instances";
 
 type FolderResponseBody = {
@@ -208,6 +209,8 @@ type SingleProcessResult = {
   estadoSiiActualizado?: boolean;
   estadoSiiActual?: number | null;
   estadoSyncError?: string | null;
+  folderJsonPatched?: boolean;
+  folderJsonPatchDetail?: string | null;
   error?: string;
   auditId?: number;
   debug?: unknown;
@@ -309,6 +312,17 @@ async function procesarEnvioFolderUno(
     };
   }
 
+  const preparedJson = await prepareFolderJsonPayload(pool, tipo, documentId, jsonEnvioSII);
+  if (!preparedJson.ok) {
+    return {
+      ok: false,
+      numero,
+      tipo,
+      error: preparedJson.error,
+      debug: preparedJson.debug,
+    };
+  }
+
   const folderEmpresaId = resolveFolderEmpresaIdForDocument(
     codEmpresa,
     descripcionEmpresa,
@@ -337,7 +351,7 @@ async function procesarEnvioFolderUno(
       Tocken: "32dee7daf6764634810f73bd595fae6b",
       "Content-Type": "application/json",
     },
-    body: jsonEnvioSII,
+    body: preparedJson.json,
   });
 
   const rawResponse = await folderResponse.text();
@@ -348,7 +362,12 @@ async function procesarEnvioFolderUno(
     folderData = { raw: rawResponse };
   }
 
-  const mensaje = getFolderMessage(folderData, folderResponse.ok);
+  const mensaje = [
+    getFolderMessage(folderData, folderResponse.ok),
+    preparedJson.patched && preparedJson.detail ? preparedJson.detail : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
   const folderBusinessSuccess = isFolderBusinessSuccess(mensaje);
   const folderOk = folderResponse.ok || folderBusinessSuccess;
 
@@ -392,6 +411,8 @@ async function procesarEnvioFolderUno(
     estadoSiiActualizado,
     estadoSiiActual,
     estadoSyncError,
+    folderJsonPatched: preparedJson.patched,
+    folderJsonPatchDetail: preparedJson.detail ?? null,
     auditId: auditId ?? undefined,
   };
 }
@@ -550,6 +571,8 @@ export async function POST(request: NextRequest) {
       estadoSiiActualizado: r.estadoSiiActualizado,
       estadoSiiActual: r.estadoSiiActual,
       estadoSyncError: r.estadoSyncError,
+      folderJsonPatched: r.folderJsonPatched,
+      folderJsonPatchDetail: r.folderJsonPatchDetail,
       auditId: r.auditId,
     });
   } catch (error) {

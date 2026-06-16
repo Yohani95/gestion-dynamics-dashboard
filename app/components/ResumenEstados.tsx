@@ -7,7 +7,13 @@ import {
   Building2, FileCheck2, Search, ArrowUpRight, ListChecks,
   AlertCircle, CheckCircle2, Printer
 } from "lucide-react";
-import { rowsToCsv, downloadCsv, downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
+import { downloadXlsxTable, triggerPrint } from "@/lib/exportUtils";
+import {
+  buildResumenPivot,
+  pivotToXlsxRows,
+  type ResumenPlano,
+} from "@/lib/resumenPivot";
+import { etiquetaCategoria, esCategoriaNoRegistrado, normalizarCategoria } from "@/lib/resumenCategorias";
 import { useInstance, fetchWithInstance } from "./InstanceContext";
 
 const RESUMEN_STORAGE_KEY = "gestion-dash-resumen";
@@ -17,6 +23,7 @@ type ResumenPersisted = {
   fechaHasta: string;
   empresa: string;
   estados: number[];
+  subcategorias?: boolean;
   resumen?: ResumenItem[];
   instanceId?: string;
 };
@@ -33,6 +40,7 @@ function loadResumenPersisted(currentInstance: string): ResumenPersisted | null 
       fechaHasta: p.fechaHasta ?? "",
       empresa: p.empresa ?? "",
       estados: Array.isArray(p.estados) ? p.estados : [0, 1, 2, 3, 4],
+      subcategorias: p.subcategorias !== false,
       resumen: Array.isArray(p.resumen) ? p.resumen : undefined,
     };
   } catch {
@@ -47,21 +55,16 @@ function saveResumenPersisted(p: ResumenPersisted, currentInstance: string) {
 }
 
 
-type ResumenItem = {
-  descripcion: string;
-  fecha: string;
-  codEmpresa: string;
-  tipo: string;
-  estado: number;
-  cantidad: number;
-};
+type ResumenItem = ResumenPlano;
+
+type VistaReporte = "lista" | "pivot";
 
 type Empresa = { codEmpresa: string; descripcion: string };
 
 const ESTADOS: { valor: number; etiqueta: string }[] = [
-  { valor: 0, etiqueta: "Sin enviar" },
+  { valor: 0, etiqueta: "No enviado" },
   { valor: 1, etiqueta: "Enviada" },
-  { valor: 2, etiqueta: "Loc. OK" },
+  { valor: 2, etiqueta: "No registrado" },
   { valor: 3, etiqueta: "Registrado" },
   { valor: 4, etiqueta: "Medio de pago listo" },
 ];
@@ -77,6 +80,9 @@ export default function ResumenEstados() {
   const [resumen, setResumen] = useState<ResumenItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
+  const [vista, setVista] = useState<VistaReporte>("pivot");
+  const [subcategorias, setSubcategorias] = useState(true);
+  const [empresasColapsadas, setEmpresasColapsadas] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const p = loadResumenPersisted(instance);
@@ -85,7 +91,15 @@ export default function ResumenEstados() {
       setFechaHasta(p.fechaHasta ?? "");
       setEmpresa(p.empresa);
       setEstados(p.estados);
-      if (p.resumen) setResumen(p.resumen);
+      setSubcategorias(p.subcategorias !== false);
+      if (p.resumen) {
+        setResumen(
+          p.resumen.map((r) => ({
+            ...r,
+            categoria: normalizarCategoria(r),
+          })),
+        );
+      }
     } else {
       // Si no hay persistencia para esta instancia, limpiamos el resumen
       setResumen(null);
@@ -130,6 +144,7 @@ export default function ResumenEstados() {
       const fHasta = fechaHasta.trim();
       if (fHasta) params.set("fechaHasta", fHasta);
       if (empresa) params.set("empresa", empresa);
+      if (subcategorias) params.set("subcategorias", "1");
 
       const res = await fetchWithInstance(`/api/resumen-estados?${params.toString()}`, {}, instance);
       const json = await res.json();
@@ -137,9 +152,19 @@ export default function ResumenEstados() {
         setError(json.error ?? "Error al cargar");
         return;
       }
-      const resumenData = json.resumen ?? [];
+      const resumenData = (json.resumen ?? []).map((r: ResumenItem & { categoria?: string }) => ({
+        ...r,
+        categoria: normalizarCategoria(r),
+      }));
       setResumen(resumenData);
-      saveResumenPersisted({ fechaDesde: f, fechaHasta: fHasta, empresa, estados, resumen: resumenData }, instance);
+      saveResumenPersisted({
+        fechaDesde: f,
+        fechaHasta: fHasta,
+        empresa,
+        estados,
+        subcategorias,
+        resumen: resumenData,
+      }, instance);
     } catch (err) {
       setError(String(err));
       setResumen([]);
@@ -149,6 +174,29 @@ export default function ResumenEstados() {
   }
 
   const totalGeneral = resumen?.reduce((s, r) => s + r.cantidad, 0) ?? 0;
+
+  const pivot = useMemo(
+    () => (resumen?.length ? buildResumenPivot(resumen) : null),
+    [resumen],
+  );
+
+  function toggleEmpresaColapsada(codEmpresa: string) {
+    setEmpresasColapsadas((prev) => {
+      const next = new Set(prev);
+      if (next.has(codEmpresa)) next.delete(codEmpresa);
+      else next.add(codEmpresa);
+      return next;
+    });
+  }
+
+  const filasPivotVisibles = useMemo(() => {
+    if (!pivot) return [];
+    return pivot.filas.filter((f) => {
+      if (f.esEncabezadoGrupo) return true;
+      if (empresasColapsadas.has(f.codEmpresa)) return false;
+      return true;
+    });
+  }, [pivot, empresasColapsadas]);
 
   return (
     <div className="w-full max-w-5xl mx-auto space-y-10">
@@ -218,6 +266,21 @@ export default function ResumenEstados() {
 
             {/* Estados con Checkboxes Premium */}
             <div className="space-y-4 pt-2">
+              <label className="flex items-start gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={subcategorias}
+                  onChange={(e) => setSubcategorias(e.target.checked)}
+                  className="mt-1 h-4 w-4 rounded border-zinc-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <span className="text-xs text-zinc-600 leading-relaxed">
+                  <span className="font-bold text-zinc-800">Detallar «No registrado»</span>
+                  {" "}(inventario / diferencia / falta registro). Si lo desmarcas, se agrupa en una sola fila.
+                </span>
+              </label>
+            </div>
+
+            <div className="space-y-4 pt-2">
               <label className="text-[11px] font-bold text-zinc-400 flex items-center gap-2 uppercase tracking-wider">
                 <ListChecks className="w-3.5 h-3.5" />
                 Filtro por Estados Dinámicos
@@ -278,17 +341,29 @@ export default function ResumenEstados() {
           <div className="space-y-4 relative z-10">
             <button
               onClick={async () => {
-                const headers = ["Empresa", "Fecha", "Tipo", "Estado", "Etiqueta", "Cantidad"];
-                const rows = resumen?.map((r) => [
+                if (!resumen?.length) return;
+                if (vista === "pivot" && pivot) {
+                  const aoa = pivotToXlsxRows(pivot);
+                  const [headers, ...rows] = aoa;
+                  await downloadXlsxTable({
+                    filename: `reporte-pivot-${fechaDesde || new Date().toISOString().split("T")[0]}`,
+                    sheetName: "Cuenta de Documento",
+                    headers: headers.map(String),
+                    rows: rows.map((r) => r.map((c) => (c === "" ? "" : c))),
+                  });
+                  return;
+                }
+                const headers = ["Empresa", "Fecha", "Tipo", "Estado", "Categoría", "Cantidad"];
+                const rows = resumen.map((r) => [
                   r.descripcion,
                   r.fecha,
                   r.tipo,
                   String(r.estado),
-                  ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? "",
+                  etiquetaCategoria(r.categoria),
                   String(r.cantidad),
-                ]) ?? [];
+                ]);
                 await downloadXlsxTable({
-                  filename: `reporte-ventas-${new Date().toISOString().split('T')[0]}`,
+                  filename: `reporte-ventas-${new Date().toISOString().split("T")[0]}`,
                   sheetName: "Resumen",
                   headers,
                   rows,
@@ -298,10 +373,10 @@ export default function ResumenEstados() {
               className="w-full h-14 bg-white/10 hover:bg-white/15 backdrop-blur-md rounded-2xl border border-white/10 text-xs font-bold transition-all flex items-center justify-center gap-3 active:scale-95 disabled:opacity-30 disabled:pointer-events-none"
             >
               <Download className="w-4 h-4" />
-              Documento Excel
+              {vista === "pivot" ? "Excel tipo Pivot" : "Documento Excel"}
             </button>
             <p className="text-[10px] text-center opacity-40 px-2 leading-relaxed">
-              Descargue un consolidado histórico para su análisis en herramientas externas.
+              Exporta por entidad y fecha, igual que la tabla dinámica de Excel.
             </p>
           </div>
         </div>
@@ -333,7 +408,23 @@ export default function ResumenEstados() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex rounded-xl border border-zinc-200 bg-white p-1 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setVista("pivot")}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${vista === "pivot" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-zinc-800"}`}
+                  >
+                    Pivot por entidad
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setVista("lista")}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${vista === "lista" ? "bg-zinc-900 text-white" : "text-zinc-500 hover:text-zinc-800"}`}
+                  >
+                    Lista detalle
+                  </button>
+                </div>
                 <button
                   type="button"
                   onClick={() => triggerPrint("#resumen-reporte")}
@@ -342,84 +433,220 @@ export default function ResumenEstados() {
                 >
                   <Printer className="w-4.5 h-4.5" />
                 </button>
-                <div className="h-6 w-px bg-zinc-200 mx-2" />
+                <div className="h-6 w-px bg-zinc-200 mx-1 hidden sm:block" />
                 <span className="text-xs font-black text-zinc-900 bg-white px-4 py-2 rounded-xl shadow-sm border border-zinc-200">
-                  {totalGeneral} Registros
+                  {totalGeneral} documentos
                 </span>
               </div>
             </div>
 
             <div className="overflow-x-auto min-h-[400px]">
-              <table className="w-full text-sm border-separate border-spacing-0">
-                <thead>
-                  <tr className="text-left">
-                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Empresa / Origen</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Fecha</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Tipo</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Estado Integración</th>
-                    <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30 text-right">Cantidad</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-50">
-                  {resumen.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="px-8 py-32 text-center">
-                        <div className="flex flex-col items-center gap-4 text-zinc-300">
-                          <Search className="w-12 h-12 opacity-20" />
-                          <p className="text-sm font-bold opacity-50">Sin coincidencias para el periodo seleccionado.</p>
-                        </div>
-                      </td>
+              {vista === "pivot" && pivot ? (
+                <table className="w-full text-sm border-separate border-spacing-0 min-w-[720px]">
+                  <thead>
+                    <tr className="text-left bg-sky-50/80">
+                      <th className="sticky left-0 z-10 px-4 sm:px-6 py-4 text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-zinc-100 bg-sky-50/95 min-w-[220px] sm:min-w-[280px]">
+                        Etiquetas de fila
+                      </th>
+                      {pivot.fechasLabel.map((f) => (
+                        <th key={f} className="px-3 py-4 text-[10px] font-black text-zinc-500 uppercase tracking-wider border-b border-zinc-100 text-center whitespace-nowrap">
+                          {f}
+                        </th>
+                      ))}
+                      <th className="px-4 py-4 text-[10px] font-black text-zinc-700 uppercase tracking-wider border-b border-zinc-100 text-right whitespace-nowrap bg-zinc-50">
+                        Total general
+                      </th>
                     </tr>
-                  ) : (
-                    resumen.map((r, i) => {
-                      const etiqueta = ESTADOS.find((e) => e.valor === r.estado)?.etiqueta ?? r.estado;
-                      const isRegistrado = r.estado === 3;
-                      const isPendiente = r.estado === 0 || r.estado === 1;
+                  </thead>
+                  <tbody>
+                    {filasPivotVisibles.length === 0 ? (
+                      <tr>
+                        <td colSpan={pivot.fechas.length + 2} className="px-8 py-32 text-center text-zinc-400">
+                          Sin coincidencias para el periodo seleccionado.
+                        </td>
+                      </tr>
+                    ) : (
+                      filasPivotVisibles.map((f, i) => {
+                        const colapsada = empresasColapsadas.has(f.codEmpresa);
 
-                      return (
-                        <tr
-                          key={`${r.codEmpresa}-${r.fecha}-${r.tipo}-${r.estado}-${i}`}
-                          className="hover:bg-zinc-50/80 transition-all duration-300 group"
-                        >
-                          <td className="px-8 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-[10px] font-black text-zinc-500 group-hover:bg-white group-hover:shadow-sm border border-transparent group-hover:border-zinc-100 transition-all">
-                                {r.descripcion.substring(0, 2).toUpperCase()}
+                        return (
+                          <tr
+                            key={`${f.codEmpresa}-${f.estado ?? "t"}-${i}`}
+                            className={
+                              f.esEncabezadoGrupo
+                                ? "bg-indigo-50/50 border-t-2 border-indigo-100"
+                                : f.esSubtotalGrupo
+                                  ? "bg-zinc-100/90 border-b-2 border-zinc-200 font-bold"
+                                  : "hover:bg-zinc-50/60 border-b border-zinc-50"
+                            }
+                          >
+                            <td
+                              className={`sticky left-0 z-10 py-2.5 border-r border-zinc-100 ${
+                                f.esEncabezadoGrupo
+                                  ? "bg-indigo-50/95 px-4 sm:px-6 font-bold text-zinc-900"
+                                  : f.esSubtotalGrupo
+                                    ? "bg-zinc-100 px-4 sm:px-6 font-bold"
+                                    : f.esDetalleEstado
+                                      ? "bg-white pl-10 sm:pl-12 pr-4 sm:pr-6 text-zinc-600"
+                                      : "bg-white px-4 sm:px-6"
+                              }`}
+                            >
+                              <div className="flex items-start gap-2">
+                                {f.esEncabezadoGrupo && (
+                                  <button
+                                    type="button"
+                                    onClick={() => toggleEmpresaColapsada(f.codEmpresa)}
+                                    className="mt-0.5 text-zinc-500 hover:text-zinc-800 shrink-0"
+                                    title={colapsada ? "Expandir detalle" : "Colapsar detalle"}
+                                  >
+                                    <ChevronRight className={`w-4 h-4 transition-transform ${colapsada ? "" : "rotate-90"}`} />
+                                  </button>
+                                )}
+                                {f.esDetalleEstado && (
+                                  <span className="w-4 shrink-0 text-zinc-300 select-none" aria-hidden>
+                                    └
+                                  </span>
+                                )}
+                                <span
+                                  className={`text-xs sm:text-sm leading-snug ${
+                                    f.esEncabezadoGrupo
+                                      ? "font-bold text-zinc-900"
+                                      : f.esSubtotalGrupo
+                                        ? "font-bold text-zinc-800"
+                                        : "text-zinc-600"
+                                  }`}
+                                >
+                                  {f.etiqueta}
+                                </span>
                               </div>
-                              <span className="text-sm font-bold text-zinc-900">{r.descripcion}</span>
-                            </div>
+                            </td>
+                            {pivot.fechas.map((fecha) => {
+                              const v = f.valores[fecha] ?? 0;
+                              const ocultarNumerosEncabezado = f.esEncabezadoGrupo && !colapsada;
+                              return (
+                                <td
+                                  key={fecha}
+                                  className={`px-3 py-2.5 text-center tabular-nums text-sm ${
+                                    ocultarNumerosEncabezado
+                                      ? "text-zinc-300"
+                                      : f.esSubtotalGrupo || f.esEncabezadoGrupo
+                                        ? "font-bold text-zinc-900"
+                                        : v
+                                          ? "text-zinc-800"
+                                          : "text-zinc-300"
+                                  }`}
+                                >
+                                  {ocultarNumerosEncabezado ? "" : v || ""}
+                                </td>
+                              );
+                            })}
+                            <td
+                              className={`px-4 py-2.5 text-right tabular-nums text-sm bg-zinc-50/50 ${
+                                f.esSubtotalGrupo || (f.esEncabezadoGrupo && colapsada)
+                                  ? "font-black text-zinc-900"
+                                  : f.esEncabezadoGrupo
+                                    ? "text-zinc-300"
+                                    : "font-semibold text-zinc-800"
+                              }`}
+                            >
+                              {f.esEncabezadoGrupo && !colapsada ? "" : f.total || ""}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                    {pivot.fechas.length > 0 && (
+                      <tr className="bg-zinc-900 text-white font-black">
+                        <td className="sticky left-0 z-10 px-4 sm:px-6 py-3 bg-zinc-900 border-r border-zinc-700">
+                          Total general
+                        </td>
+                        {pivot.fechas.map((fecha) => (
+                          <td key={fecha} className="px-3 py-3 text-center tabular-nums">
+                            {pivot.totalesPorFecha[fecha] ?? 0}
                           </td>
-                          <td className="px-8 py-4">
-                            <span className="text-xs font-semibold text-zinc-500">{r.fecha}</span>
-                          </td>
-                          <td className="px-8 py-4">
-                            <span className="inline-flex px-2.5 py-1 rounded-md bg-zinc-900 text-white text-[10px] font-black uppercase tracking-tight">
-                              {r.tipo}
-                            </span>
-                          </td>
-                          <td className="px-8 py-4">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${isRegistrado
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
-                              : isPendiente
-                                ? "bg-amber-50 text-amber-700 border-amber-100/50"
-                                : "bg-zinc-50 text-zinc-600 border-zinc-100"
-                              }`}>
-                              <div className={`w-1.5 h-1.5 rounded-full ${isRegistrado ? "bg-emerald-500" : isPendiente ? "bg-amber-500" : "bg-zinc-400"
-                                }`} />
-                              {etiqueta}
-                            </span>
-                          </td>
-                          <td className="px-8 py-4 text-right">
-                            <span className="text-lg font-mono font-black text-zinc-900 tabular-nums">
-                              {r.cantidad}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
+                        ))}
+                        <td className="px-4 py-3 text-right tabular-nums bg-zinc-800">
+                          {pivot.totalGeneral}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full text-sm border-separate border-spacing-0">
+                  <thead>
+                    <tr className="text-left">
+                      <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Empresa / Origen</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Fecha</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Tipo</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30">Estado Integración</th>
+                      <th className="px-8 py-5 text-[10px] font-black text-zinc-400 uppercase tracking-[0.2em] border-b border-zinc-100 bg-zinc-50/30 text-right">Cantidad</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50">
+                    {resumen.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-8 py-32 text-center">
+                          <div className="flex flex-col items-center gap-4 text-zinc-300">
+                            <Search className="w-12 h-12 opacity-20" />
+                            <p className="text-sm font-bold opacity-50">Sin coincidencias para el periodo seleccionado.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    ) : (
+                      resumen.map((r, i) => {
+                        const etiqueta = etiquetaCategoria(r.categoria);
+                        const isRegistrado = r.categoria === "3";
+                        const isNoRegistrado = esCategoriaNoRegistrado(r.categoria);
+                        const isPendiente = r.categoria === "0" || r.categoria === "1";
+
+                        return (
+                          <tr
+                            key={`${r.codEmpresa}-${r.fecha}-${r.tipo}-${r.categoria}-${i}`}
+                            className="hover:bg-zinc-50/80 transition-all duration-300 group"
+                          >
+                            <td className="px-8 py-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center text-[10px] font-black text-zinc-500 group-hover:bg-white group-hover:shadow-sm border border-transparent group-hover:border-zinc-100 transition-all">
+                                  {r.descripcion.substring(0, 2).toUpperCase()}
+                                </div>
+                                <span className="text-sm font-bold text-zinc-900">{r.descripcion}</span>
+                              </div>
+                            </td>
+                            <td className="px-8 py-4">
+                              <span className="text-xs font-semibold text-zinc-500">{r.fecha}</span>
+                            </td>
+                            <td className="px-8 py-4">
+                              <span className="inline-flex px-2.5 py-1 rounded-md bg-zinc-900 text-white text-[10px] font-black uppercase tracking-tight">
+                                {r.tipo}
+                              </span>
+                            </td>
+                            <td className="px-8 py-4">
+                              <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-black uppercase tracking-tight border ${isRegistrado
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-100/50"
+                                : isNoRegistrado
+                                  ? "bg-indigo-50 text-indigo-700 border-indigo-100/50"
+                                : isPendiente
+                                  ? "bg-amber-50 text-amber-700 border-amber-100/50"
+                                  : "bg-zinc-50 text-zinc-600 border-zinc-100"
+                                }`}>
+                                <div className={`w-1.5 h-1.5 rounded-full ${isRegistrado ? "bg-emerald-500" : isNoRegistrado ? "bg-indigo-500" : isPendiente ? "bg-amber-500" : "bg-zinc-400"
+                                  }`} />
+                                {etiqueta}
+                              </span>
+                            </td>
+                            <td className="px-8 py-4 text-right">
+                              <span className="text-lg font-mono font-black text-zinc-900 tabular-nums">
+                                {r.cantidad}
+                              </span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             <div className="px-8 py-5 bg-zinc-900 border-t border-zinc-800 flex items-center justify-between">
