@@ -140,6 +140,7 @@ export function AdminSessionProvider({ children }: { children: ReactNode }) {
     setUsername(null);
     setRole(null);
     setExpiresAt(null);
+    window.location.assign("/login");
   }, []);
 
   useEffect(() => {

@@ -1,51 +1,32 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
 import bcrypt from "bcryptjs";
 import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import type { AdminRole, AdminSession } from "@/lib/authTypes";
+import {
+  AUTH_SESSION_COOKIE,
+  clearAdminSessionCookie,
+  createLocalAdminSession,
+  decodeSessionToken,
+  setAdminSessionCookie,
+} from "@/lib/authSession";
 
-export type AuthProvider = "local" | "windows";
-export type AdminRole = "ADMIN";
-
-export type AdminSession = {
-  username: string;
-  role: AdminRole;
-  provider: AuthProvider;
-  iat: number;
-  exp: number;
-};
-
-type LocalAdminUser = {
-  username: string;
-  passwordHash: string;
-  role: AdminRole;
-};
-
-export const AUTH_SESSION_TTL_SECONDS = 8 * 60 * 60;
-export const AUTH_SESSION_COOKIE = "gd_admin_session";
+export type { AdminRole, AdminSession, AuthProvider } from "@/lib/authTypes";
+export { AUTH_SESSION_COOKIE, AUTH_SESSION_TTL_SECONDS } from "@/lib/authTypes";
+export {
+  clearAdminSessionCookie,
+  createLocalAdminSession,
+  setAdminSessionCookie,
+} from "@/lib/authSession";
 
 function normalizeUsername(value: string) {
   return value.trim().toLowerCase();
 }
 
-export function getAuthProvider(): AuthProvider {
+export function getAuthProvider() {
   const raw = process.env.AUTH_PROVIDER?.trim().toLowerCase();
   return raw === "windows" ? "windows" : "local";
 }
 
-function getSessionSecret() {
-  const secret = process.env.AUTH_SESSION_SECRET?.trim();
-  if (!secret) {
-    throw new Error(
-      "AUTH_SESSION_SECRET no configurado. Define este valor en .env.local.",
-    );
-  }
-  return secret;
-}
-
-function parseAdminUsersFromEnv(): LocalAdminUser[] {
-  const raw = process.env.ADMIN_USERS_JSON?.trim();
-  if (!raw) return [];
-
+function parseAdminUsersJson(raw: string) {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -57,7 +38,11 @@ function parseAdminUsersFromEnv(): LocalAdminUser[] {
     throw new Error("ADMIN_USERS_JSON debe ser un arreglo de usuarios.");
   }
 
-  const users: LocalAdminUser[] = [];
+  const users: Array<{
+    username: string;
+    passwordHash: string;
+    role: AdminRole;
+  }> = [];
 
   for (const item of parsed) {
     const record = item as {
@@ -86,6 +71,23 @@ function parseAdminUsersFromEnv(): LocalAdminUser[] {
   return users;
 }
 
+function parseAdminUsersFromEnv() {
+  const encoded = process.env.ADMIN_USERS_JSON_B64?.trim();
+  if (encoded) {
+    try {
+      const raw = Buffer.from(encoded, "base64").toString("utf8");
+      return parseAdminUsersJson(raw);
+    } catch {
+      throw new Error("ADMIN_USERS_JSON_B64 no tiene un base64 valido.");
+    }
+  }
+
+  const raw = process.env.ADMIN_USERS_JSON?.trim();
+  if (!raw) return [];
+
+  return parseAdminUsersJson(raw);
+}
+
 function parseWindowsAdminUsers() {
   const raw = process.env.WINDOWS_ADMIN_USERS?.trim();
   if (!raw) return [];
@@ -93,101 +95,6 @@ function parseWindowsAdminUsers() {
     .split(",")
     .map((item) => normalizeUsername(item))
     .filter(Boolean);
-}
-
-function signValue(value: string) {
-  const secret = getSessionSecret();
-  return createHmac("sha256", secret).update(value).digest("base64url");
-}
-
-function verifySignature(value: string, signature: string) {
-  const expected = signValue(value);
-  if (signature.length !== expected.length) return false;
-  return timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-}
-
-function encodeSession(session: AdminSession) {
-  const payload = Buffer.from(JSON.stringify(session)).toString("base64url");
-  const signature = signValue(payload);
-  return `${payload}.${signature}`;
-}
-
-function decodeSession(token: string): AdminSession | null {
-  const [payload, signature] = token.split(".");
-  if (!payload || !signature) return null;
-  if (!verifySignature(payload, signature)) return null;
-
-  try {
-    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as {
-      username?: unknown;
-      role?: unknown;
-      provider?: unknown;
-      iat?: unknown;
-      exp?: unknown;
-    };
-
-    if (
-      typeof parsed.username !== "string" ||
-      parsed.role !== "ADMIN" ||
-      parsed.provider !== "local" ||
-      typeof parsed.iat !== "number" ||
-      typeof parsed.exp !== "number"
-    ) {
-      return null;
-    }
-
-    const nowSeconds = Math.floor(Date.now() / 1000);
-    if (parsed.exp <= nowSeconds) return null;
-
-    return {
-      username: parsed.username,
-      role: parsed.role,
-      provider: parsed.provider,
-      iat: parsed.iat,
-      exp: parsed.exp,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function createLocalAdminSession(username: string): AdminSession {
-  const nowSeconds = Math.floor(Date.now() / 1000);
-  return {
-    username,
-    role: "ADMIN",
-    provider: "local",
-    iat: nowSeconds,
-    exp: nowSeconds + AUTH_SESSION_TTL_SECONDS,
-  };
-}
-
-export function setAdminSessionCookie(
-  response: NextResponse,
-  session: AdminSession,
-) {
-  const value = encodeSession(session);
-  response.cookies.set({
-    name: AUTH_SESSION_COOKIE,
-    value,
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: AUTH_SESSION_TTL_SECONDS,
-  });
-}
-
-export function clearAdminSessionCookie(response: NextResponse) {
-  response.cookies.set({
-    name: AUTH_SESSION_COOKIE,
-    value: "",
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
 }
 
 export async function authenticateLocalAdmin(
@@ -230,7 +137,7 @@ function getWindowsSessionFromRequest(request: NextRequest): AdminSession | null
     role: "ADMIN",
     provider: "windows",
     iat: nowSeconds,
-    exp: nowSeconds + AUTH_SESSION_TTL_SECONDS,
+    exp: nowSeconds + 8 * 60 * 60,
   };
 }
 
@@ -245,7 +152,7 @@ export function getAdminSessionFromRequest(request: NextRequest): AdminSession |
   if (!token) return null;
 
   try {
-    return decodeSession(token);
+    return decodeSessionToken(token);
   } catch {
     return null;
   }

@@ -47,6 +47,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [isDesktopCollapsed, setIsDesktopCollapsed] = useState(false);
+  const isLoginPage = pathname === "/login";
+
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
 
   const pageTitle =
     pathname === "/"

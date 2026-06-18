@@ -1,0 +1,12 @@
+---
+description: No iniciar servidores de desarrollo; solo compilar para verificar
+alwaysApply: true
+---
+
+# Ejecución local: solo compilar
+
+- **Nunca** ejecutar `npm run dev`, `next dev`, `npm start` ni levantar la aplicación en segundo plano.
+- **Nunca** iniciar procesos de servidor para probar en el navegador salvo que el usuario lo pida explícitamente.
+- Para verificar cambios, usar **solo** `npm run build` (compilar).
+- Si hace falta validar algo en runtime, indicar al usuario los pasos para que él ejecute el servidor; no hacerlo automáticamente.
+- Si quedaron servidores activos por error, cerrarlos cuando el usuario lo solicite.
