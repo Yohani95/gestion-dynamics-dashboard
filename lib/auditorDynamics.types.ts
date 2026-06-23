@@ -18,6 +18,7 @@ export type HallazgoAuditor = {
 };
 
 export type ResultadoAuditorDocumento = {
+  idDocumento: string;
   tipo: string;
   numero: number;
   codEmpresa: string;
@@ -37,5 +38,6 @@ export type ResultadoAuditorDocumento = {
     lineas: number;
     total?: number;
     estado?: string;
+    idDynamics?: string | null;
   };
 };

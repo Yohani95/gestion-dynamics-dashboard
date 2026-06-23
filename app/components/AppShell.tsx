@@ -14,6 +14,7 @@ import {
   PlayCircle,
   Database,
   ChevronDown,
+  Wrench,
 } from "lucide-react";
 import {
   InstanceProvider,
@@ -32,9 +33,14 @@ type NavItem = {
   icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
 };
 
-const primaryNavItems: NavItem[] = [
-  { name: "Inicio", href: "/", icon: House },
-  { name: "Ventas (Dynamics)", href: "/ventas", icon: LayoutDashboard },
+const rootNavItems: NavItem[] = [{ name: "Inicio", href: "/", icon: House }];
+
+const ventasNavItems: NavItem[] = [
+  { name: "Diagnóstico", href: "/ventas", icon: LayoutDashboard },
+  { name: "Herramientas BC", href: "/ventas/herramientas", icon: Wrench },
+];
+
+const tailNavItems: NavItem[] = [
   { name: "Transferencias", href: "/transferencias", icon: ArrowRightLeft },
 ];
 
@@ -56,8 +62,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const pageTitle =
     pathname === "/"
       ? "Panel Ejecutivo Integrado"
-      : pathname.startsWith("/ventas")
-        ? "Diagnostico Integracion Dynamics"
+      : pathname.startsWith("/ventas/herramientas")
+        ? "Herramientas BC"
+        : pathname.startsWith("/ventas")
+          ? "Diagnostico Integracion Dynamics"
         : pathname.startsWith("/transferencias")
           ? "Gestion de Transferencias"
           : pathname.startsWith("/advanced/jobs")
@@ -75,11 +83,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       if (href === "/") return currentPath === "/";
       return currentPath === href || currentPath.startsWith(`${href}/`);
     };
+    const [isVentasOpen, setIsVentasOpen] = useState(currentPath.startsWith("/ventas"));
     const [isAdvancedOpen, setIsAdvancedOpen] = useState(
       currentPath.startsWith("/advanced"),
     );
     const [advancedAlerts, setAdvancedAlerts] = useState(0);
     const loadAlertsInFlightRef = useRef(false);
+
+    useEffect(() => {
+      if (currentPath.startsWith("/ventas")) {
+        setIsVentasOpen(true);
+      }
+    }, [currentPath]);
 
     useEffect(() => {
       if (currentPath.startsWith("/advanced")) {
@@ -144,14 +159,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }, [instance]);
 
     const isAdvancedActive = currentPath.startsWith("/advanced");
-    const visiblePrimaryNavItems = isJobsOnly
+    const isVentasActive = currentPath.startsWith("/ventas");
+    const visibleRootNavItems = isJobsOnly ? [] : rootNavItems;
+    const visibleVentasNavItems = isJobsOnly ? [] : ventasNavItems;
+    const visibleTailNavItems = isJobsOnly
       ? []
-      : primaryNavItems.filter((item) => {
+      : tailNavItems.filter((item) => {
           if (!supportsTransferencias && item.href === "/transferencias") {
             return false;
           }
           return true;
         });
+    const ventasRootHref = visibleVentasNavItems[0]?.href ?? "/ventas";
     const visibleAdvancedNavItems = isJobsOnly
       ? advancedNavItems.filter((item) => item.href === "/advanced/jobs")
       : advancedNavItems;
@@ -202,7 +221,148 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         </div>
 
         <nav className="scrollbar-hide flex-1 space-y-1 overflow-y-auto p-4">
-          {visiblePrimaryNavItems.map((item) => {
+          {visibleRootNavItems.map((item) => {
+            const isActive = isNavActiveLocal(item.href);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setIsMobileOpen(false)}
+                className={`group relative flex items-center overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 ${
+                  isActive
+                    ? "bg-zinc-800/80 text-white shadow-sm"
+                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                }`}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="active-nav-indicator"
+                    className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
+                    initial={false}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  />
+                )}
+                <item.icon
+                  className={`h-5 w-5 flex-shrink-0 transition-colors ${
+                    isActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                  } ${isDesktopCollapsed ? "mx-auto" : "mr-3"}`}
+                  aria-hidden
+                />
+                <AnimatePresence mode="wait">
+                  {!isDesktopCollapsed && (
+                    <motion.span
+                      initial={{ opacity: 0, width: 0 }}
+                      animate={{ opacity: 1, width: "auto" }}
+                      exit={{ opacity: 0, width: 0 }}
+                      className="overflow-hidden whitespace-nowrap"
+                    >
+                      {item.name}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </Link>
+            );
+          })}
+
+          {!isJobsOnly && visibleVentasNavItems.length > 0 && (
+            isDesktopCollapsed ? (
+              <Link
+                href={ventasRootHref}
+                onClick={() => setIsMobileOpen(false)}
+                className={`group relative flex items-center justify-center overflow-hidden rounded-xl px-3 py-3 text-sm font-medium transition-all duration-300 ${
+                  isVentasActive
+                    ? "bg-zinc-800/80 text-white shadow-sm"
+                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                }`}
+              >
+                {isVentasActive && (
+                  <motion.div
+                    layoutId="active-nav-indicator"
+                    className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
+                    initial={false}
+                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                  />
+                )}
+                <LayoutDashboard
+                  className={`h-5 w-5 transition-colors ${
+                    isVentasActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                  }`}
+                  aria-hidden
+                />
+              </Link>
+            ) : (
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setIsVentasOpen((prev) => !prev)}
+                  className={`group relative flex w-full items-center rounded-xl px-3 py-3 text-left text-sm font-medium transition-all duration-300 ${
+                    isVentasActive
+                      ? "bg-zinc-800/80 text-white shadow-sm"
+                      : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                  }`}
+                >
+                  {isVentasActive && (
+                    <motion.div
+                      layoutId="active-nav-indicator"
+                      className="absolute left-0 top-0 h-full w-1 rounded-r-full bg-white"
+                      initial={false}
+                      transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                    />
+                  )}
+                  <LayoutDashboard
+                    className={`mr-3 h-5 w-5 flex-shrink-0 transition-colors ${
+                      isVentasActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                    }`}
+                    aria-hidden
+                  />
+                  <span className="overflow-hidden whitespace-nowrap">Ventas (Dynamics)</span>
+                  <motion.div animate={{ rotate: isVentasOpen ? 180 : 0 }} className="ml-auto">
+                    <ChevronDown className="h-4 w-4" />
+                  </motion.div>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {isVentasOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="space-y-1 overflow-hidden pl-4"
+                    >
+                      {visibleVentasNavItems.map((item) => {
+                        const isActive =
+                          item.href === "/ventas"
+                            ? currentPath === "/ventas"
+                            : isNavActiveLocal(item.href);
+                        return (
+                          <Link
+                            key={item.href}
+                            href={item.href}
+                            onClick={() => setIsMobileOpen(false)}
+                            className={`group flex items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                              isActive
+                                ? "bg-zinc-800 text-white"
+                                : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-50"
+                            }`}
+                          >
+                            <item.icon
+                              className={`mr-3 h-4 w-4 flex-shrink-0 ${
+                                isActive ? "text-white" : "text-zinc-500 group-hover:text-zinc-300"
+                              }`}
+                              aria-hidden
+                            />
+                            <span className="overflow-hidden whitespace-nowrap">{item.name}</span>
+                          </Link>
+                        );
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            )
+          )}
+
+          {visibleTailNavItems.map((item) => {
             const isActive = isNavActiveLocal(item.href);
             return (
               <Link

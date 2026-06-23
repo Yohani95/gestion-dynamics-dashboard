@@ -44,6 +44,7 @@ export async function listarDocumentosAuditor(
     numero?: string;
     estadoSII?: string;
     estadoEnvio?: string;
+    estadoEnvioMax?: number;
     soloTimbrados?: boolean;
     offset?: number;
     limit?: number;
@@ -54,6 +55,7 @@ export async function listarDocumentosAuditor(
   const numero = opts?.numero?.trim() ?? "";
   const estadoSII = opts?.estadoSII?.trim() ?? "";
   const estadoEnvio = opts?.estadoEnvio?.trim() ?? "";
+  const estadoEnvioMax = opts?.estadoEnvioMax;
   const soloTimbrados = opts?.soloTimbrados !== false;
   const offset = Math.max(0, opts?.offset ?? 0);
   const limit = Math.min(50, Math.max(1, opts?.limit ?? AUDITOR_DYNAMICS_LOTE));
@@ -104,6 +106,10 @@ export async function listarDocumentosAuditor(
       WHERE (NULLIF(@tipo, '') IS NULL OR U.Tipo = @tipo)
         AND (NULLIF(@estadoSII, '') IS NULL OR ISNULL(U.Estado_SII, -1) = TRY_CAST(@estadoSII AS INT))
         AND (
+          @estadoEnvioMax IS NULL
+          OR ISNULL(U.Estado_Envio, 0) <= @estadoEnvioMax
+        )
+        AND (
           NULLIF(@estadoEnvio, '') IS NULL
           OR (TRY_CAST(@estadoEnvio AS INT) = 0 AND (U.Estado_Envio IS NULL OR U.Estado_Envio = 0))
           OR (TRY_CAST(@estadoEnvio AS INT) <> 0 AND U.Estado_Envio = TRY_CAST(@estadoEnvio AS INT))
@@ -140,6 +146,7 @@ export async function listarDocumentosAuditor(
       numero,
       estadoSII,
       estadoEnvio,
+      estadoEnvioMax: estadoEnvioMax ?? null,
       soloTimbrados: soloTimbrados ? 1 : 0,
       offset,
       limit,
@@ -164,6 +171,13 @@ export async function listarDocumentosAuditor(
   return { documentos, total };
 }
 
+function extractBcDocumentId(registro: Record<string, unknown> | undefined): string | null {
+  if (!registro) return null;
+  const raw = registro.id ?? registro.Id ?? registro.systemId ?? registro.InvoiceId;
+  if (raw == null || raw === "") return null;
+  return String(raw).trim() || null;
+}
+
 function detectarLineasDuplicadasBc(lineas: BcDocumentoVista["lineas"]): string[] {
   const porProducto = new Map<string, number>();
   for (const l of lineas) {
@@ -180,6 +194,7 @@ export function compararDocumentoConBc(
   vista: BcDocumentoVista | undefined,
   encontrado: boolean,
   errorBc?: string,
+  idBcDynamics?: string | null,
 ): ResultadoAuditorDocumento {
   const hallazgos: HallazgoAuditor[] = [];
   const numeroBc = formatBcDocumentNumber(doc.tipo, String(doc.numero));
@@ -190,12 +205,12 @@ export function compararDocumentoConBc(
       severidad: "warning",
       mensaje: "Documento sin timbrar SII; se omite comparación con BC.",
     });
-    return buildResultado(doc, numeroBc, hallazgos, "omitido", undefined, false);
+    return buildResultado(doc, numeroBc, hallazgos, "omitido", undefined, false, null);
   }
 
   if (errorBc) {
     hallazgos.push({ codigo: "error_bc", severidad: "error", mensaje: errorBc });
-    return buildResultado(doc, numeroBc, hallazgos, "error", undefined, false);
+    return buildResultado(doc, numeroBc, hallazgos, "error", undefined, false, idBcDynamics ?? null);
   }
 
   if (!encontrado || !vista) {
@@ -204,7 +219,7 @@ export function compararDocumentoConBc(
       severidad: "error",
       mensaje: `No existe en Business Central (${numeroBc}).`,
     });
-    return buildResultado(doc, numeroBc, hallazgos, "error", undefined, false);
+    return buildResultado(doc, numeroBc, hallazgos, "error", undefined, false, idBcDynamics ?? null);
   }
 
   const diffMonto = Math.abs(doc.totalGestion - (vista.montoTotal ?? 0));
@@ -252,7 +267,7 @@ export function compararDocumentoConBc(
   const tieneWarning = hallazgos.some((h) => h.severidad === "warning");
   const estadoAuditoria = tieneError ? "error" : tieneWarning ? "warning" : "ok";
 
-  return buildResultado(doc, numeroBc, hallazgos, estadoAuditoria, vista, true);
+  return buildResultado(doc, numeroBc, hallazgos, estadoAuditoria, vista, true, idBcDynamics ?? null);
 }
 
 function buildResultado(
@@ -262,8 +277,10 @@ function buildResultado(
   estadoAuditoria: ResultadoAuditorDocumento["estadoAuditoria"],
   vista: BcDocumentoVista | undefined,
   encontrado: boolean,
+  idBcDynamics?: string | null,
 ): ResultadoAuditorDocumento {
   return {
+    idDocumento: doc.idDocumento,
     tipo: doc.tipo,
     numero: doc.numero,
     codEmpresa: doc.codEmpresa,
@@ -284,10 +301,11 @@ function buildResultado(
           lineas: vista.cantidadLineas,
           total: vista.montoTotal,
           estado: vista.estadoLabel,
+          idDynamics: idBcDynamics ?? null,
         }
       : encontrado
         ? undefined
-        : { encontrado: false, lineas: 0 },
+        : { encontrado: false, lineas: 0, idDynamics: idBcDynamics ?? null },
   };
 }
 
@@ -304,12 +322,14 @@ export async function auditarLoteDocumentos(
     }
 
     const bc = await buscarDocumentoEnOData(String(doc.numero), doc.tipo, doc.codEmpresa, instance);
+    const idBc = extractBcDocumentId(bc.registro);
     resultados.push(
       compararDocumentoConBc(
         doc,
         bc.vista,
         bc.encontrado,
         bc.error ?? (!bc.encontrado && bc.consultado ? bc.resumen : undefined),
+        idBc,
       ),
     );
   }
